@@ -130,3 +130,12 @@ cp -a -u "$HOME/AyuGram4A/." "/storage/emulated/0/opencode/AyuGram4A/"
 - CI: `.github/workflows/release.yml` rewritten for ubuntu-22.04 hosted runners (checkout v4, temurin 17, NDK r21e + cmake 3.10.2 from dl.google.com archives, secrets → local/api.properties, `assembleAfatRelease`, artifact upload)
 - On-device build NOT possible: NDK 21.4/cmake 3.10 gone from sdkmanager, NDK toolchains are x86_64-only, Room sqlite-jdbc needs glibc; installed build-tools 33.0.1 + NDK 23.1 locally for validation only (machine-local `-I local-ndk.init.gradle`, repo untouched)
 - USER MUST: add 5 repo Secrets (APP_ID, APP_HASH, SIGNING_KEY_STORE_PASSWORD, SIGNING_KEY_ALIAS, SIGNING_KEY_PASSWORD), then push to `rewrite` or Run workflow manually
+
+## 9. Session 3 (2026-09-14) — private repo + cloud-assembled CI build
+
+- Original fork made PRIVATE, but GitHub disabled pushes on it (fork restriction) → created NEW private non-fork repo `sinanalizz123-max/AyuGram4A-private`
+- 5 Secrets set on BOTH repos (values never printed); only secret NAMES visible via `gh secret list`
+- Phone upload too slow for 500MB history push (HTTP 408 x2) → bootstrap strategy: runner clones public upstream base (`7013145676d36d82ee13c02a89f72097b7490dcd`, verified reachable) via partial clone, applies 507KB `overlay.tar.gz` (68 files: all our changes, NO secrets), then builds
+- Bootstrap commit pushed to AyuGram4A-private:rewrite (519KB: release.yml + overlay.tar.gz + BASE_SHA) — CI run triggered
+- Builder files live in `~/.cache/opencode/tmp/bootstrap/` (reusable for future pushes: refresh overlay.tar.gz + push)
+- To rebuild after new edits: regenerate overlay.tar.gz from `git diff --name-only <base> HEAD` (minus `.github/workflows/release.yml`) + push to AyuGram4A-private:rewrite
