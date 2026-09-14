@@ -532,20 +532,21 @@ public class FileLoadOperation {
         }
     }
 
-    private void scheduleDownloadRetry(long delayMs) {
+    private boolean scheduleDownloadRetry(long delayMs) {
         if (state != stateDownloading) {
-            return;
+            return false;
         }
         long delay = Math.max(MIN_RETRY_DELAY_MS, delayMs);
         if (paused) {
             pendingRetryDelay = delay;
-            return;
+            return false;
         }
         Utilities.stageQueue.postRunnable(() -> {
             if (state == stateDownloading && !paused) {
                 startDownloadRequest();
             }
         }, delay);
+        return true;
     }
 
     private boolean retryTransientFailure(String reason) {
@@ -823,6 +824,7 @@ public class FileLoadOperation {
             return;
         }
         paused = true;
+        AyuDownloadEngine.logDownloadEvent("pause");
     }
 
     public boolean start() {
@@ -854,8 +856,9 @@ public class FileLoadOperation {
         paused = false;
         if (pendingRetryDelay > 0) {
             long delay = pendingRetryDelay;
-            pendingRetryDelay = 0;
-            scheduleDownloadRetry(delay);
+            if (scheduleDownloadRetry(delay)) {
+                pendingRetryDelay = 0;
+            }
         }
         if (stream != null) {
             Utilities.stageQueue.postRunnable(() -> {
@@ -983,6 +986,7 @@ public class FileLoadOperation {
         requestInfos = new ArrayList<>(currentMaxDownloadRequests);
         delayedRequestInfos = new ArrayList<>(currentMaxDownloadRequests - 1);
         state = stateDownloading;
+        AyuDownloadEngine.logDownloadEvent("start");
 
         if (parentObject instanceof TLRPC.TL_theme) {
             TLRPC.TL_theme theme = (TLRPC.TL_theme) parentObject;
@@ -1530,6 +1534,7 @@ public class FileLoadOperation {
             return;
         }
         state = stateFinished;
+        AyuDownloadEngine.logDownloadEvent("success");
         notifyStreamListeners();
         cleanup();
         if (isPreloadVideoOperation) {
@@ -2072,6 +2077,7 @@ public class FileLoadOperation {
                 delay = (long) (delay * (0.8f + Utilities.random.nextFloat() * 0.4f));
                 consecutiveTransientFailures++;
                 applyDegrade(1, "flood_wait");
+                AyuDownloadEngine.logDownloadEvent("err-flood");
                 if (BuildVars.DEBUG_VERSION) {
                     FileLog.d("download adaptive: file=" + fileName + " FLOOD_WAIT retry failures=" + consecutiveTransientFailures + " delay=" + delay + " dc=" + datacenterId + " cdn=" + isCdn);
                 }
@@ -2081,6 +2087,7 @@ public class FileLoadOperation {
                     scheduleDownloadRetry(delay);
                 }
             } else if (error.text.contains("FILE_MIGRATE_")) {
+                AyuDownloadEngine.logDownloadEvent("err-migrate");
                 String errorMsg = error.text.replace("FILE_MIGRATE_", "");
                 Scanner scanner = new Scanner(errorMsg);
                 scanner.useDelimiter("");
@@ -2113,12 +2120,17 @@ public class FileLoadOperation {
                     onFail(false, 0);
                 }
             } else if (error.text.contains("RETRY_LIMIT")) {
-                onFail(false, 2);
+                AyuDownloadEngine.logDownloadEvent("err-retry-limit");
+                if (!retryTransientFailure("retry_limit")) {
+                    onFail(false, 0);
+                }
             } else if (error.text.contains("TIMEOUT") || error.text.contains("TIMED_OUT") || error.text.contains("timeout") || error.text.contains("INTERNAL") || error.text.contains("RPC_CALL_FAIL") || error.text.contains("NETWORK_")) {
+                AyuDownloadEngine.logDownloadEvent("err-timeout");
                 if (!retryTransientFailure("timeout")) {
                     onFail(false, 0);
                 }
             } else {
+                AyuDownloadEngine.logDownloadEvent("err-other");
                 if (BuildVars.LOGS_ENABLED) {
                     if (location != null) {
                         FileLog.e(error.text + " " + location + " id = " + location.id + " local_id = " + location.local_id + " access_hash = " + location.access_hash + " volume_id = " + location.volume_id + " secret = " + location.secret);
@@ -2133,6 +2145,7 @@ public class FileLoadOperation {
     }
 
     protected void onFail(boolean thread, final int reason) {
+        AyuDownloadEngine.logDownloadEvent("fail-" + reason);
         cleanup();
         state = reason == 1 ? stateCanceled : stateFailed;
         if (delegate != null) {

@@ -79,6 +79,11 @@ public class AyuDownloadEngine {
     private static volatile int timeoutCount;
     private static volatile long lastAdjustTime;
 
+    private static final int MAX_EVENTS = 120;
+    private static final String[] eventRing = new String[MAX_EVENTS];
+    private static int eventPos;
+    private static final long bootTime = SystemClock.elapsedRealtime();
+
     static {
         try {
             loadConfig();
@@ -516,6 +521,54 @@ public class AyuDownloadEngine {
             chunkIndex = DEFAULT_CHUNK_INDEX;
             currentRequests = DEFAULT_REQUESTS;
             lastAdjustTime = 0;
+        }
+    }
+
+    public static void logDownloadEvent(String tag) {
+        synchronized (sync) {
+            if (tag == null) {
+                return;
+            }
+            String entry = (SystemClock.elapsedRealtime() - bootTime) + "ms " + tag;
+            eventRing[eventPos % MAX_EVENTS] = entry;
+            eventPos++;
+            FileLog.d("dl-event: " + entry);
+        }
+    }
+
+    public static String getDownloadEvents() {
+        synchronized (sync) {
+            int count = Math.min(eventPos, MAX_EVENTS);
+            if (count <= 0) {
+                return null;
+            }
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < count; i++) {
+                int idx = (eventPos - count + i) % MAX_EVENTS;
+                if (idx < 0) {
+                    idx += MAX_EVENTS;
+                }
+                String e = eventRing[idx];
+                if (e == null) {
+                    continue;
+                }
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(e);
+            }
+            if (sb.length() == 0) {
+                return null;
+            }
+            String result = sb.toString();
+            if (result.length() > 4000) {
+                result = result.substring(result.length() - 4000);
+                int nl = result.indexOf('\n');
+                if (nl >= 0) {
+                    result = result.substring(nl + 1);
+                }
+            }
+            return result;
         }
     }
 

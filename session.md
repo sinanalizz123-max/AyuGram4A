@@ -170,3 +170,11 @@ cp -a -u "$HOME/AyuGram4A/." "/storage/emulated/0/opencode/AyuGram4A/"
 - afat run 34853116900 went GREEN with buds key: `ayuGram-universal-14092026.apk` (~73MB, all 4 ABIs present, signed CN=sinan.ali) in `/storage/emulated/0/opencode/apks/`
 - Private bootstrap repo left undeleted (needs delete_repo scope — user action)
 - Remaining optional: delete AyuGram4A-private; future edits = edit → push → dispatch with task input
+
+## 15. Session 9 (2026-09-15) — K1 download fixes shipped + v12 shell GREEN
+
+- 3 coder agents implemented R1-R7 stop fixes (retry recovery, balancer floor 2, mask-flap exemption+debounce, reason==2 cleanup, storage-gate onFail, delayed cap 8x, flood cap+jitter); identifiers cross-verified, committed, pushed
+- Beta run 34885693026 GREEN: new `ayuGram-beta-universal-14092026.apk` (~79.5MB, buds-signed) in apks/beta/debug/ (old kept as -prev)
+- Rebase shell run 34883380285 GREEN on fork rebase-v12: `app.apk` (~68MB, libtmessages.49.so, buds-signed) in apks/arm64/debug/ — Stage 1 COMPLETE (targetSdk 36 base builds)
+- Shell needed: google-services beta client entry (fixed), submodules init (fixed)
+- Next: Stage 2 extera port via overlay refresh on rebase-v12

@@ -206,6 +206,7 @@ public class MessageDetailsPopupWrapper {
             items.add(new Item(R.drawable.msg_satellite, LocaleController.getString(R.string.Datacenter), String.format(Locale.ROOT, "DC%d, %s", dc, ChatUtils.getDCName(dc))));
         }
 
+        String downloadEvents = null;
         try {
             if (AyuDownloadEngine.isEnabled()) {
                 long speed = AyuDownloadEngine.getThroughputBps();
@@ -238,6 +239,10 @@ public class MessageDetailsPopupWrapper {
                     }
                     if (storage != null) {
                         items.add(new Item(R.drawable.msg_noise_on, "Storage", storage));
+                    }
+                    try {
+                        downloadEvents = AyuDownloadEngine.getDownloadEvents();
+                    } catch (Exception ignored) {
                     }
                 }
             }
@@ -318,6 +323,18 @@ public class MessageDetailsPopupWrapper {
                 copy(text);
                 return true;
             });
+        }
+        try {
+            if (downloadEvents != null && !downloadEvents.isEmpty() && windowLayout != null && activity != null) {
+                android.widget.TextView eventsView = new android.widget.TextView(activity);
+                eventsView.setText(downloadEvents);
+                eventsView.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 11);
+                eventsView.setTypeface(android.graphics.Typeface.MONOSPACE);
+                eventsView.setTextColor(Theme.getColor(Theme.key_actionBarDefaultSubmenuItem, resourcesProvider));
+                eventsView.setPadding(AndroidUtilities.dp(16), AndroidUtilities.dp(4), AndroidUtilities.dp(16), AndroidUtilities.dp(8));
+                windowLayout.addView(eventsView, LayoutHelper.createLinear(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
+            }
+        } catch (Exception ignored) {
         }
     }
 
