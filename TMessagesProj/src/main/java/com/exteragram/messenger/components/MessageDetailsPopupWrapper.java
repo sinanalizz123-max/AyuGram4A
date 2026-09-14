@@ -68,11 +68,11 @@ public class MessageDetailsPopupWrapper {
     public MessageDetailsPopupWrapper(BaseFragment fragment, PopupSwipeBackLayout swipeBackLayout, MessageObject messageObject, Theme.ResourcesProvider resourcesProvider) {
         this.fragment = fragment;
         this.resourcesProvider = resourcesProvider;
-        var context = fragment != null ? fragment.getParentActivity() : null;
-        if (context == null) {
-            context = ApplicationLoader.applicationContext;
+        var activity = fragment != null ? fragment.getParentActivity() : null;
+        if (activity == null) {
+            return;
         }
-        windowLayout = new ActionBarPopupWindow.ActionBarPopupWindowLayout(context, 0, resourcesProvider, ActionBarPopupWindow.ActionBarPopupWindowLayout.FLAG_USE_SWIPEBACK);
+        windowLayout = new ActionBarPopupWindow.ActionBarPopupWindowLayout(activity, 0, resourcesProvider, ActionBarPopupWindow.ActionBarPopupWindowLayout.FLAG_USE_SWIPEBACK);
         windowLayout.setFitItems(true);
         if (fragment == null || messageObject == null || messageObject.messageOwner == null) {
             return;

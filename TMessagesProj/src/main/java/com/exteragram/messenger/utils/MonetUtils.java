@@ -126,7 +126,7 @@ public class MonetUtils {
             int c = ApplicationLoader.applicationContext.getColor(id);
             return ColorUtils.setAlphaComponent(c, (int) (alpha * 2.55f));
         } catch (Exception e) {
-            FileLog.e("Theme", "Error loading color " + color);
+            FileLog.e("Theme: error loading color " + color);
             FileLog.e(e);
             return 0;
         }
