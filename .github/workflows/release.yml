@@ -42,6 +42,33 @@ jobs:
           EOF
           echo "keys present: $(cut -d= -f1 local/api.properties | tr '\n' ' ')"
 
+      - name: Validate credential shapes (lengths only, never values)
+        run: |
+          python3 -c "
+          ok = True
+          expect = {'APP_ID': 8, 'APP_HASH': 32}
+          seen = {}
+          f = open('local/api.properties', encoding='utf-8')
+          lines = [l.rstrip('\n') for l in f]
+          print('line count:', len(lines))
+          import unicodedata
+          for l in lines:
+              s = l.strip()
+              if not s or s.startswith('#') or '=' not in s:
+                  print('BAD LINE SHAPE')
+                  ok = False
+                  continue
+              k, v = s.split('=', 1)
+              cats = sorted(set(unicodedata.category(c) for c in v))
+              print(k, 'len=', len(v), 'ws=', any(c.isspace() for c in v), 'cats=', cats)
+              seen[k] = len(v)
+          for k, n in expect.items():
+              if seen.get(k) != n:
+                  print('MISMATCH:', k)
+                  ok = False
+          raise SystemExit(0 if ok else 1)
+          "
+
       - name: Free disk space
         run: |
           sudo apt-get remove -y '^llvm-.*' 'php.*' '^mongodb-.*' '^mysql-.*' azure-cli firefox mono-devel libgl1-mesa-dri || true
