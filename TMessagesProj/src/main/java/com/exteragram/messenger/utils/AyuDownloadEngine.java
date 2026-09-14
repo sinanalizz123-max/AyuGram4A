@@ -492,6 +492,13 @@ public class AyuDownloadEngine {
         return errorCount;
     }
 
+    public static void resetDegradedState() {
+        synchronized (sync) {
+            chunkIndex = DEFAULT_CHUNK_INDEX;
+            currentRequests = DEFAULT_REQUESTS;
+        }
+    }
+
     public static void resetStats() {
         synchronized (sync) {
             windowPos = 0;

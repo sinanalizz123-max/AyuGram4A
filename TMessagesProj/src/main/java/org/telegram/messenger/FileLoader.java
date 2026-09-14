@@ -140,7 +140,7 @@ public class FileLoader extends BaseController {
     public int getEffectivePerFileMax(int requestedMax, boolean highPriority) {
         try {
             int active = getActiveDownloadCount();
-            if (active <= 2 || requestedMax <= 1) {
+            if (highPriority || active <= 2 || requestedMax <= 1) {
                 return requestedMax;
             }
             int totalCap = TOTAL_DOWNLOAD_CONNECTIONS_CAP;
@@ -154,7 +154,7 @@ public class FileLoader extends BaseController {
             if (highPriority) {
                 effective += 1;
             }
-            effective = Math.max(1, Math.min(requestedMax, effective));
+            effective = Math.max(requestedMax >= 4 ? 2 : 1, Math.min(requestedMax, effective));
             if (BuildVars.DEBUG_VERSION && effective != requestedMax) {
                 FileLog.d("download adaptive: active=" + active + " requestedMax=" + requestedMax + " effectiveMax=" + effective + " highPriority=" + highPriority + " account=" + currentAccount);
             }
@@ -980,7 +980,7 @@ public class FileLoader extends BaseController {
                     delegate.fileDidFailedLoad(fileName, reason);
                 }
 
-                if (document != null && parentObject instanceof MessageObject && reason == 0) {
+                if (document != null && parentObject instanceof MessageObject && (reason == 0 || reason == 2)) {
                     getDownloadController().onDownloadFail((MessageObject) parentObject, reason);
                 } else if (reason == -1) {
                     LaunchActivity.checkFreeDiscSpaceStatic(2);

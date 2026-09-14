@@ -174,6 +174,8 @@ public class FileLoadOperation {
     private int currentMaxDownloadRequests;
     private int degradedMaxDownloadRequests;
     private int consecutiveTransientFailures;
+    private int consecutiveSuccesses;
+    private long pendingRetryDelay;
     private static final int MAX_TRANSIENT_RETRIES = 5;
     private static final long MIN_RETRY_DELAY_MS = 500;
     private static final long MAX_RETRY_DELAY_MS = 5000;
@@ -531,10 +533,14 @@ public class FileLoadOperation {
     }
 
     private void scheduleDownloadRetry(long delayMs) {
-        if (state != stateDownloading || paused) {
+        if (state != stateDownloading) {
             return;
         }
         long delay = Math.max(MIN_RETRY_DELAY_MS, delayMs);
+        if (paused) {
+            pendingRetryDelay = delay;
+            return;
+        }
         Utilities.stageQueue.postRunnable(() -> {
             if (state == stateDownloading && !paused) {
                 startDownloadRequest();
@@ -827,6 +833,8 @@ public class FileLoadOperation {
         startTime = System.currentTimeMillis();
         updateParams();
         if (AyuDownloadEngine.isEnabled() && !AyuDownloadEngine.checkStorageForLargeFile(totalBytesCount)) {
+            onFail(false, -1);
+            FileLoader.getInstance(currentAccount).notifyDegradeOnce("low_storage");
             return false;
         }
         if (currentDownloadChunkSize == 0) {
@@ -844,6 +852,11 @@ public class FileLoadOperation {
         final boolean alreadyStarted = state != stateIdle;
         final boolean wasPaused = paused;
         paused = false;
+        if (pendingRetryDelay > 0) {
+            long delay = pendingRetryDelay;
+            pendingRetryDelay = 0;
+            scheduleDownloadRetry(delay);
+        }
         if (stream != null) {
             Utilities.stageQueue.postRunnable(() -> {
                 if (streamListeners == null) {
@@ -1676,7 +1689,7 @@ public class FileLoadOperation {
 
     private void delayRequestInfo(RequestInfo requestInfo) {
         int effectiveMax = getEffectiveMaxDownloadRequests();
-        if (delayedRequestInfos.size() >= 4 * effectiveMax) {
+        if (delayedRequestInfos.size() >= 8 * effectiveMax) {
             if (BuildVars.DEBUG_VERSION) {
                 FileLog.d("download backpressure: file=" + fileName + " dropping out-of-order part offset=" + requestInfo.offset + " delayed=" + delayedRequestInfos.size() + " effectiveMax=" + effectiveMax);
             }
@@ -1803,6 +1816,11 @@ public class FileLoadOperation {
         requestInfos.remove(requestInfo);
         if (error == null) {
             consecutiveTransientFailures = 0;
+            consecutiveSuccesses++;
+            if (consecutiveSuccesses >= 20) {
+                degradedMaxDownloadRequests = currentMaxDownloadRequests;
+                consecutiveSuccesses = 0;
+            }
             try {
                 if (notLoadedBytesRanges == null && downloadedBytes != requestInfo.offset) {
                     delayRequestInfo(requestInfo);
@@ -2048,6 +2066,10 @@ public class FileLoadOperation {
                 if (delay < MIN_RETRY_DELAY_MS) {
                     delay = MIN_RETRY_DELAY_MS;
                 }
+                if (delay > 30000) {
+                    delay = 30000;
+                }
+                delay = (long) (delay * (0.8f + Utilities.random.nextFloat() * 0.4f));
                 consecutiveTransientFailures++;
                 applyDegrade(1, "flood_wait");
                 if (BuildVars.DEBUG_VERSION) {

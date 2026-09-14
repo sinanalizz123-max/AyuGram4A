@@ -158,3 +158,15 @@ cp -a -u "$HOME/AyuGram4A/." "/storage/emulated/0/opencode/AyuGram4A/"
 
 - Run 34835506611 reached Java compile (native OK) but 2 type errors in our edits: popup Context→Activity, FileLog.e(String,String) — FIXED, pushed, dispatched 34840727479 (stale 34840661527 cancelled: dispatched before push landed)
 - Lesson: always push BEFORE dispatching; verify run's commit matches
+
+## 13. Session 7 (2026-09-14) — APK BUILT, downloaded, verified
+
+- Fast runs: added selectable `task` input (afat/arm64/betaDebug) + `compile-check` gate + generic artifact path
+- `assembleBetaDebug` GREEN (run 34863098816): APK `ayuGram-beta-universal-14092026.apk` (~79.5MB, arm64) in `/storage/emulated/0/opencode/apks/beta/debug/`, signed with user's buds key (CN=sinan.ali), native libtmessages present
+- afat release run 34853116900: still in progress/pending in parallel for the universal shippable artifact
+
+## 14. Session 8 (2026-09-14) — BOTH APKS DONE
+
+- afat run 34853116900 went GREEN with buds key: `ayuGram-universal-14092026.apk` (~73MB, all 4 ABIs present, signed CN=sinan.ali) in `/storage/emulated/0/opencode/apks/`
+- Private bootstrap repo left undeleted (needs delete_repo scope — user action)
+- Remaining optional: delete AyuGram4A-private; future edits = edit → push → dispatch with task input

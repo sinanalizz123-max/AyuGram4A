@@ -14,6 +14,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
+import android.os.SystemClock;
 import android.util.Pair;
 import android.util.SparseArray;
 
@@ -60,6 +61,7 @@ public class DownloadController extends BaseController implements NotificationCe
     public static final int PRESET_SIZE_NUM_AUDIO = 3;
 
     private int lastCheckMask = 0;
+    private long lastCheckTime;
     private final ArrayList<DownloadObject> photoDownloadQueue = new ArrayList<>();
     private final ArrayList<DownloadObject> audioDownloadQueue = new ArrayList<>();
     private final ArrayList<DownloadObject> documentDownloadQueue = new ArrayList<>();
@@ -503,7 +505,26 @@ public class DownloadController extends BaseController implements NotificationCe
         return mask;
     }
 
+    private boolean isManualDownload(DownloadObject downloadObject) {
+        if (downloadObject == null || !(downloadObject.object instanceof TLRPC.Document)) {
+            return false;
+        }
+        TLRPC.Document document = (TLRPC.Document) downloadObject.object;
+        for (int i = 0; i < downloadingFiles.size(); i++) {
+            MessageObject messageObject = downloadingFiles.get(i);
+            if (messageObject != null && messageObject.getDocument() != null && messageObject.getDocument().id == document.id) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void checkAutodownloadSettings() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastCheckTime < 2000) {
+            return;
+        }
+        lastCheckTime = now;
         int currentMask = getCurrentDownloadMask();
         if (currentMask == lastCheckMask) {
             return;
@@ -514,8 +535,11 @@ public class DownloadController extends BaseController implements NotificationCe
                 newDownloadObjectsAvailable(AUTODOWNLOAD_TYPE_PHOTO);
             }
         } else {
-            for (int a = 0; a < photoDownloadQueue.size(); a++) {
+            for (int a = photoDownloadQueue.size() - 1; a >= 0; a--) {
                 DownloadObject downloadObject = photoDownloadQueue.get(a);
+                if (isManualDownload(downloadObject)) {
+                    continue;
+                }
                 if (downloadObject.object instanceof TLRPC.Photo) {
                     TLRPC.Photo photo = (TLRPC.Photo) downloadObject.object;
                     TLRPC.PhotoSize photoSize = FileLoader.getClosestPhotoSizeWithSize(photo.sizes, AndroidUtilities.getPhotoSize());
@@ -523,42 +547,51 @@ public class DownloadController extends BaseController implements NotificationCe
                 } else if (downloadObject.object instanceof TLRPC.Document) {
                     getFileLoader().cancelLoadFile((TLRPC.Document) downloadObject.object);
                 }
+                photoDownloadQueue.remove(a);
             }
-            photoDownloadQueue.clear();
         }
         if ((currentMask & AUTODOWNLOAD_TYPE_AUDIO) != 0) {
             if (audioDownloadQueue.isEmpty()) {
                 newDownloadObjectsAvailable(AUTODOWNLOAD_TYPE_AUDIO);
             }
         } else {
-            for (int a = 0; a < audioDownloadQueue.size(); a++) {
+            for (int a = audioDownloadQueue.size() - 1; a >= 0; a--) {
                 DownloadObject downloadObject = audioDownloadQueue.get(a);
+                if (isManualDownload(downloadObject)) {
+                    continue;
+                }
                 getFileLoader().cancelLoadFile((TLRPC.Document) downloadObject.object);
+                audioDownloadQueue.remove(a);
             }
-            audioDownloadQueue.clear();
         }
         if ((currentMask & AUTODOWNLOAD_TYPE_DOCUMENT) != 0) {
             if (documentDownloadQueue.isEmpty()) {
                 newDownloadObjectsAvailable(AUTODOWNLOAD_TYPE_DOCUMENT);
             }
         } else {
-            for (int a = 0; a < documentDownloadQueue.size(); a++) {
+            for (int a = documentDownloadQueue.size() - 1; a >= 0; a--) {
                 DownloadObject downloadObject = documentDownloadQueue.get(a);
+                if (isManualDownload(downloadObject)) {
+                    continue;
+                }
                 TLRPC.Document document = (TLRPC.Document) downloadObject.object;
                 getFileLoader().cancelLoadFile(document);
+                documentDownloadQueue.remove(a);
             }
-            documentDownloadQueue.clear();
         }
         if ((currentMask & AUTODOWNLOAD_TYPE_VIDEO) != 0) {
             if (videoDownloadQueue.isEmpty()) {
                 newDownloadObjectsAvailable(AUTODOWNLOAD_TYPE_VIDEO);
             }
         } else {
-            for (int a = 0; a < videoDownloadQueue.size(); a++) {
+            for (int a = videoDownloadQueue.size() - 1; a >= 0; a--) {
                 DownloadObject downloadObject = videoDownloadQueue.get(a);
+                if (isManualDownload(downloadObject)) {
+                    continue;
+                }
                 getFileLoader().cancelLoadFile((TLRPC.Document) downloadObject.object);
+                videoDownloadQueue.remove(a);
             }
-            videoDownloadQueue.clear();
         }
         int mask = getAutodownloadMaskAll();
         if (mask == 0) {
@@ -1273,7 +1306,7 @@ public class DownloadController extends BaseController implements NotificationCe
             }
             if (removed) {
                 getNotificationCenter().postNotificationName(NotificationCenter.onDownloadingFilesChanged);
-                if (reason == 0) {
+                if (reason == 0 || reason == 2) {
                     NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.showBulletin, Bulletin.TYPE_ERROR, LocaleController.formatString("MessageNotFound", R.string.MessageNotFound));
                 } else if (reason == -1) {
                     LaunchActivity.checkFreeDiscSpaceStatic(2);
