@@ -66,13 +66,24 @@ jobs:
       - name: Check required secrets
         run: |
           missing=0
-          for name in APP_ID APP_HASH SIGNING_KEY_STORE_PASSWORD SIGNING_KEY_ALIAS SIGNING_KEY_PASSWORD; do
+          for name in APP_ID APP_HASH SIGNING_KEY_STORE_PASSWORD SIGNING_KEY_ALIAS SIGNING_KEY_PASSWORD SIGNING_KEYSTORE_B64; do
             if [ -z "${!name}" ]; then echo "::error::Secret $name is not set (repo Settings -> Secrets and variables -> Actions)"; missing=1; fi
           done
           [ "$missing" = "0" ] || exit 1
         env:
           APP_ID: ${{ secrets.APP_ID }}
           APP_HASH: ${{ secrets.APP_HASH }}
+          SIGNING_KEY_STORE_PASSWORD: ${{ secrets.SIGNING_KEY_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+
+      - name: Restore release keystore + verify unlock
+        run: |
+          echo "$SIGNING_KEYSTORE_B64" | base64 -d > TMessagesProj/config/extera.jks
+          keytool -list -keystore TMessagesProj/config/extera.jks -storepass "$SIGNING_KEY_STORE_PASSWORD" -alias "$SIGNING_KEY_ALIAS" -keypass "$SIGNING_KEY_PASSWORD" > /dev/null && echo "keystore unlock: OK"
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
           SIGNING_KEY_STORE_PASSWORD: ${{ secrets.SIGNING_KEY_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}

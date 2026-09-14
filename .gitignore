@@ -10,6 +10,7 @@ output-metadata.json
 local.properties
 API_KEYS
 local/api.properties
+TMessagesProj/config/extera.jks
 
 *.hprof
 *.iml
