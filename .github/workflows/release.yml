@@ -3,6 +3,15 @@ on:
   push:
     branches: [rewrite]
   workflow_dispatch:
+    inputs:
+      task:
+        description: 'Gradle task (push builds always run assembleAfatRelease)'
+        type: choice
+        default: 'assembleAfatRelease'
+        options:
+          - assembleAfatRelease
+          - assembleArm64Release
+          - assembleArm64Debug
 
 jobs:
   # Fast gate: Java-only compile (~10-15 min) to catch code errors
@@ -177,10 +186,14 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build with Gradle
-        run: ./gradlew assembleAfatRelease
+        run: |
+          chmod +x gradlew
+          ./gradlew ${TASK:-assembleAfatRelease}
+        env:
+          TASK: ${{ inputs.task }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ayugram-afat-release
-          path: TMessagesProj/build/outputs/apk/afat/release/*.apk
+          name: ayugram-apk
+          path: TMessagesProj/build/outputs/apk/**/*.apk
