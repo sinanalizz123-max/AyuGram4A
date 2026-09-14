@@ -281,11 +281,11 @@ public class MessageDetailsPopupWrapper {
                 if (i.id == FILE_PATH && filePath != null) {
                     try {
                         Intent intent = new Intent(Intent.ACTION_SEND);
-                        var uri = FileProvider.getUriForFile(context, ApplicationLoader.getApplicationId() + ".provider", new File(filePath));
+                        var uri = FileProvider.getUriForFile(activity, ApplicationLoader.getApplicationId() + ".provider", new File(filePath));
                         intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                         intent.putExtra(Intent.EXTRA_STREAM, uri);
                         intent.setDataAndType(uri, messageObject.getMimeType());
-                        context.startActivityForResult(Intent.createChooser(intent, LocaleController.getString("ShareFile", R.string.ShareFile)), 500);
+                        activity.startActivityForResult(Intent.createChooser(intent, LocaleController.getString("ShareFile", R.string.ShareFile)), 500);
                     } catch (ActivityNotFoundException | IllegalArgumentException | NullPointerException e) {
                         FileLog.e(e);
                     }

@@ -5,6 +5,53 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Fast gate: Java-only compile (~10-15 min) to catch code errors
+  # ~20 min before the full release build would. Runs in parallel.
+  compile-check:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Install Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-33" "build-tools;33.0.1"
+
+      - name: Install NDK r21e (pinned 21.4.7075529)
+        run: |
+          cd /tmp
+          curl -sL -o ndk-r21e.zip https://dl.google.com/android/repository/android-ndk-r21e-linux-x86_64.zip
+          mkdir -p "$ANDROID_HOME/ndk/21.4.7075529"
+          unzip -q ndk-r21e.zip -d ndk-tmp
+          cp -a ndk-tmp/android-ndk-r21e/. "$ANDROID_HOME/ndk/21.4.7075529/"
+          rm -rf ndk-tmp ndk-r21e.zip
+
+      - name: Install CMake 3.10.2 (pinned)
+        run: |
+          cd /tmp
+          curl -sL -o cmake-310.zip https://dl.google.com/android/repository/cmake-3.10.2-linux-x86_64.zip
+          mkdir -p "$ANDROID_HOME/cmake/3.10.2.4988404"
+          unzip -q cmake-310.zip -d "$ANDROID_HOME/cmake/3.10.2.4988404"
+          rm -f cmake-310.zip
+
+      - name: Write dummy local/api.properties
+        run: |
+          mkdir -p local
+          printf 'APP_ID=6246784\nAPP_HASH=dummyhash0000000000000000000000\n' > local/api.properties
+
+      - name: Compile Java only
+        run: |
+          chmod +x gradlew
+          ./gradlew :TMessagesProj:compileBetaDebugJavaWithJavac
+
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 300

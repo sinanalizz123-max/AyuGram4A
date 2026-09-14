@@ -296,7 +296,7 @@ public class UpdaterUtils {
                 return Build.SUPPORTED_ABIS.length > 0 ? Build.SUPPORTED_ABIS[0] : "arm64-v8a";
             }
             var info = ApplicationLoader.applicationContext.getPackageManager().getPackageInfo(ApplicationLoader.applicationContext.getPackageName(), 0);
-            int mod = Math.floorMod(info.versionCode, 10);
+            int mod = info.versionCode % 10;
             switch (mod) {
                 case 1:
                 case 3:

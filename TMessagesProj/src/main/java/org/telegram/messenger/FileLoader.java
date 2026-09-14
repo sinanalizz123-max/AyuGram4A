@@ -214,7 +214,7 @@ public class FileLoader extends BaseController {
                             if (batteryStatus != null) {
                                 int status = batteryStatus.getIntExtra("status", -1);
                                 charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL;
-                            } else {
+                            } else if (android.os.Build.VERSION.SDK_INT >= 23) {
                                 charging = batteryManager.isCharging();
                             }
                             lowBattery = level >= 0 && level < 15 && !charging;

@@ -139,3 +139,22 @@ cp -a -u "$HOME/AyuGram4A/." "/storage/emulated/0/opencode/AyuGram4A/"
 - Bootstrap commit pushed to AyuGram4A-private:rewrite (519KB: release.yml + overlay.tar.gz + BASE_SHA) — CI run triggered
 - Builder files live in `~/.cache/opencode/tmp/bootstrap/` (reusable for future pushes: refresh overlay.tar.gz + push)
 - To rebuild after new edits: regenerate overlay.tar.gz from `git diff --name-only <base> HEAD` (minus `.github/workflows/release.yml`) + push to AyuGram4A-private:rewrite
+
+## 10. Session 4 (2026-09-14) — back to public fork, building there
+
+- Fork re-made PUBLIC (private-fork pushes were 403-disabled by GitHub); AyuGram4A-private kept as spare
+- Secrets NEVER in git: only `local/api.properties.example` (placeholders) tracked — verified in commit + leak-scan of workflow/build.gradle
+- Push to fork needed only 2-commit delta (history already there) — succeeded instantly
+- Push events not triggering runs (disable-cycle leftover) → build triggered via manual `workflow_dispatch`: run 34829805662 on AyuGram4A:rewrite
+- NOTE: built APK embeds APP_ID/APP_HASH in BuildConfig like every Telegram client — normal, not a leak; raw secrets stay in Actions Secrets + local file only
+
+## 11. Session 5 (2026-09-14) — secrets bug found + fixed
+
+- CI failed at `int APP_ID = ;` → added lengths-only diagnostic step → ALL secrets were single `-`
+- Root cause: `gh secret set --body -` does NOT read stdin; it stored the literal dash. Re-set all 5 with `--body "$v"` on both repos
+- Lengths gate now PASSES (APP_ID 8, APP_HASH 32); full build running: run 34835506611 on AyuGram4A:rewrite
+
+## 12. Session 6 (2026-09-14) — CI iterating to green
+
+- Run 34835506611 reached Java compile (native OK) but 2 type errors in our edits: popup Context→Activity, FileLog.e(String,String) — FIXED, pushed, dispatched 34840727479 (stale 34840661527 cancelled: dispatched before push landed)
+- Lesson: always push BEFORE dispatching; verify run's commit matches
