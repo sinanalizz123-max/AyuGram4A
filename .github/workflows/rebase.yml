@@ -2,6 +2,8 @@ name: Rebase v12 shell build
 # Stage 1: clone official master @ pin, apply identity overlay, green shell APK.
 # Manual dispatch only — does not interfere with the 9.6.6 line.
 on:
+  push:
+    branches: [rebase-v12]
   workflow_dispatch:
     inputs:
       task:
