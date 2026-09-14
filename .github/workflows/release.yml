@@ -11,7 +11,7 @@ on:
         options:
           - assembleAfatRelease
           - assembleArm64Release
-          - assembleArm64Debug
+          - assembleBetaDebug
 
 jobs:
   # Fast gate: Java-only compile (~10-15 min) to catch code errors
