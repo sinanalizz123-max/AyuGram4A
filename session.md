@@ -178,3 +178,21 @@ cp -a -u "$HOME/AyuGram4A/." "/storage/emulated/0/opencode/AyuGram4A/"
 - Rebase shell run 34883380285 GREEN on fork rebase-v12: `app.apk` (~68MB, libtmessages.49.so, buds-signed) in apks/arm64/debug/ — Stage 1 COMPLETE (targetSdk 36 base builds)
 - Shell needed: google-services beta client entry (fixed), submodules init (fixed)
 - Next: Stage 2 extera port via overlay refresh on rebase-v12
+
+## 16. Session 10 (2026-09-15) — stall NOT FIXED, instrumented beta shipped
+
+- 3 user tests: large downloads still stall ~15-30s (K1 beta). P0 stays.
+- Suspect fixes shipped: RETRY_LIMIT→transient backoff, pendingRetry flush hardening.
+- Instrumented beta run 34896248046 GREEN: `apks/beta/debug/ayuGram-beta-universal-14092026.apk`
+  (~79.5MB; previous K1 build renamed to -K1). Per-download event timeline
+  (start/pause/retry/err-*/fail-*/success + ms timestamps) in download-details
+  UI + logcat `dl-event:` lines.
+- Beta naming: v1=original, v2=K1 fixes, v3=instrumented (current), v4=next.
+
+## 17. Session 11 (2026-09-15) — network-dependent stall confirmed
+
+- User tested v3 on slow mobile (3-4 Mbps): **no stall** (download sustained).
+- Earlier stalls occurred at **high throughput** (30+ Mbps on Wi-Fi).
+- Confirms stall is **throughput-dependent**: high throughput triggers server-side `RETRY_LIMIT`/rate-limit or client-side backoff bug, not low-bandwidth Doze.
+- v3 instrumentation ready for next high-speed test.
+- Next: observe timeline at 30+ Mbps stall → final targeted fix.
