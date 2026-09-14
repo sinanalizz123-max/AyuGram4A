@@ -79,11 +79,17 @@ public class CameraXView extends BaseCameraView {
 
         @Override
         public void onDisplayChanged(int displayId) {
-            if (getRootView().getDisplay().getDisplayId() == displayId) {
-                displayOrientation = getRootView().getDisplay().getRotation();
-                if (controller != null) {
-                    controller.setTargetOrientation(displayOrientation);
+            try {
+                if (getRootView() == null || getRootView().getDisplay() == null) {
+                    return;
                 }
+                if (getRootView().getDisplay().getDisplayId() == displayId) {
+                    displayOrientation = getRootView().getDisplay().getRotation();
+                    if (controller != null) {
+                        controller.setTargetOrientation(displayOrientation);
+                    }
+                }
+            } catch (Exception ignored) {
             }
         }
     };
@@ -150,19 +156,36 @@ public class CameraXView extends BaseCameraView {
 
     @Override
     public boolean isFrontface() {
-        return controller.isFrontface();
+        if (controller != null) {
+            try {
+                return controller.isFrontface();
+            } catch (Exception ignored) {
+            }
+        }
+        return frontface;
     }
 
     //ugly api behaviour after permission check
     public void rebind() {
-        if (isStreaming) {
-            Bitmap previewBitmap = previewView.getBitmap();
+        if (controller == null) {
+            return;
+        }
+        if (isStreaming && previewView != null) {
+            Bitmap previewBitmap = null;
+            try {
+                previewBitmap = previewView.getBitmap();
+            } catch (Exception ignored) {
+            }
             if (previewBitmap != null) {
+                recyclePlaceholder();
                 placeholderView.setImageBitmap(previewBitmap);
                 placeholderView.setVisibility(View.VISIBLE);
             }
         }
-        controller.bindUseCases();
+        try {
+            controller.bindUseCases();
+        } catch (Exception ignored) {
+        }
     }
 
     public void closeCamera() {
@@ -172,11 +195,20 @@ public class CameraXView extends BaseCameraView {
     }
 
     private void observeStream() {
+        if (previewView == null || lifecycle == null) {
+            return;
+        }
         previewView.getPreviewStreamState().observe(lifecycle, streamState -> {
             if (streamState == PreviewView.StreamState.STREAMING) {
-                delegate.onCameraInit();
+                if (delegate != null) {
+                    try {
+                        delegate.onCameraInit();
+                    } catch (Exception ignored) {
+                    }
+                }
                 isStreaming = true;
                 firstFrameRendered = true;
+                recyclePlaceholder();
                 placeholderView.setImageBitmap(null);
                 placeholderView.setVisibility(View.GONE);
                 AndroidUtilities.runOnUIThread(this::onFirstFrameRendered);
@@ -201,39 +233,74 @@ public class CameraXView extends BaseCameraView {
     }
 
     public void switchCamera() {
-        if (isStreaming) {
-            Bitmap previewBitmap = previewView.getBitmap();
+        if (controller == null) {
+            return;
+        }
+        if (isStreaming && previewView != null) {
+            Bitmap previewBitmap = null;
+            try {
+                previewBitmap = previewView.getBitmap();
+            } catch (Exception ignored) {
+            }
             if (previewBitmap != null) {
+                recyclePlaceholder();
                 placeholderView.setImageBitmap(previewBitmap);
                 placeholderView.setVisibility(View.VISIBLE);
             }
         }
-        controller.switchCamera();
+        try {
+            controller.switchCamera();
+        } catch (Exception ignored) {
+        }
     }
 
     public void changeEffect(@CameraXController.EffectFacing int effect) {
-        if (isStreaming) {
-            Bitmap previewBitmap = previewView.getBitmap();
+        if (controller == null) {
+            return;
+        }
+        if (isStreaming && previewView != null) {
+            Bitmap previewBitmap = null;
+            try {
+                previewBitmap = previewView.getBitmap();
+            } catch (Exception ignored) {
+            }
             if (previewBitmap != null) {
+                recyclePlaceholder();
                 placeholderView.setImageBitmap(previewBitmap);
                 placeholderView.setVisibility(View.VISIBLE);
             }
         }
-        controller.setCameraEffect(effect);
+        try {
+            controller.setCameraEffect(effect);
+        } catch (Exception ignored) {
+        }
     }
 
     public int getCameraEffect() {
+        if (controller == null) {
+            return CameraXController.CAMERA_NONE;
+        }
         return controller.getCameraEffect();
     }
 
     public void startChangeEffectAnimation() {
         placeholderView.setVisibility(View.GONE);
-        blurredStubView.animate().setListener(null).cancel();
+        if (blurredStubView != null) {
+            blurredStubView.animate().setListener(null).cancel();
+        }
         if (firstFrameRendered) {
-            Bitmap bitmap = getTextureView().getBitmap(100, 100);
+            TextureView tv = getTextureView();
+            Bitmap bitmap = null;
+            if (tv != null) {
+                try {
+                    bitmap = tv.getBitmap(100, 100);
+                } catch (Exception ignored) {
+                }
+            }
             if (bitmap != null) {
                 Utilities.blurBitmap(bitmap, 3, 1, bitmap.getWidth(), bitmap.getHeight(), bitmap.getRowBytes());
                 Drawable drawable = new BitmapDrawable(ApplicationLoader.applicationContext.getResources(), bitmap);
+                recycleBlurredBackground();
                 blurredStubView.setBackground(drawable);
             }
         }
@@ -246,14 +313,25 @@ public class CameraXView extends BaseCameraView {
     public void startSwitchingAnimation() {
         if (flipAnimator != null) {
             flipAnimator.cancel();
+            flipAnimator = null;
         }
         placeholderView.setVisibility(View.GONE);
-        blurredStubView.animate().setListener(null).cancel();
+        if (blurredStubView != null) {
+            blurredStubView.animate().setListener(null).cancel();
+        }
         if (firstFrameRendered) {
-            Bitmap bitmap = getTextureView().getBitmap(100, 100);
+            TextureView tv = getTextureView();
+            Bitmap bitmap = null;
+            if (tv != null) {
+                try {
+                    bitmap = tv.getBitmap(100, 100);
+                } catch (Exception ignored) {
+                }
+            }
             if (bitmap != null) {
                 Utilities.blurBitmap(bitmap, 3, 1, bitmap.getWidth(), bitmap.getHeight(), bitmap.getRowBytes());
                 Drawable drawable = new BitmapDrawable(ApplicationLoader.applicationContext.getResources(), bitmap);
+                recycleBlurredBackground();
                 blurredStubView.setBackground(drawable);
             }
             blurredStubView.setAlpha(0f);
@@ -366,7 +444,14 @@ public class CameraXView extends BaseCameraView {
     @SuppressLint("RestrictedApi")
     @Override
     public boolean hasFrontFaceCamera() {
-        return controller.hasFrontFaceCamera();
+        if (controller == null) {
+            return false;
+        }
+        try {
+            return controller.hasFrontFaceCamera();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     @SuppressLint("RestrictedApi")
@@ -376,18 +461,38 @@ public class CameraXView extends BaseCameraView {
 
     @Override
     public TextureView getTextureView() {
-        return (TextureView) (previewView.getChildAt(0));
+        if (previewView == null || previewView.getChildCount() == 0) {
+            return null;
+        }
+        View child = previewView.getChildAt(0);
+        if (child instanceof TextureView) {
+            return (TextureView) child;
+        }
+        return null;
     }
 
     public Bitmap getBitmap() {
-        return previewView.getBitmap();
+        if (previewView == null) {
+            return null;
+        }
+        try {
+            return previewView.getBitmap();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public String setNextFlashMode() {
+        if (controller == null) {
+            return "off";
+        }
         return mapFlashMode(controller.setNextFlashMode());
     }
 
     public String getCurrentFlashMode() {
+        if (controller == null) {
+            return "off";
+        }
         return mapFlashMode(controller.getCurrentFlashMode());
     }
 
@@ -409,12 +514,44 @@ public class CameraXView extends BaseCameraView {
 
     @Override
     protected void onDetachedFromWindow() {
-        super.onDetachedFromWindow();
-        if (lifecycle != null) {
+        if (flipAnimator != null) {
+            flipAnimator.cancel();
+            flipAnimator = null;
+        }
+        if (textureViewAnimator != null) {
+            textureViewAnimator.cancel();
+            textureViewAnimator = null;
+        }
+        if (blurredStubView != null) {
+            blurredStubView.animate().setListener(null).cancel();
+        }
+        try {
+            if (previewView != null && lifecycle != null) {
+                previewView.getPreviewStreamState().removeObservers(lifecycle);
+            }
+        } catch (Exception ignored) {
+        }
+        if (controller != null) {
+            try {
+                controller.closeCamera();
+            } catch (Exception ignored) {
+            }
+            controller = null;
+        } else if (lifecycle != null) {
             lifecycle.stop();
         }
-        ((DisplayManager) getContext().getSystemService(Context.DISPLAY_SERVICE)).unregisterDisplayListener(displayOrientationListener);
-        worldOrientationListener.disable();
+        lifecycle = null;
+        try {
+            ((DisplayManager) getContext().getSystemService(Context.DISPLAY_SERVICE)).unregisterDisplayListener(displayOrientationListener);
+        } catch (Exception ignored) {
+        }
+        try {
+            worldOrientationListener.disable();
+        } catch (Exception ignored) {
+        }
+        recyclePlaceholder();
+        recycleBlurredBackground();
+        super.onDetachedFromWindow();
     }
 
     public void setDelegate(CameraView.CameraViewDelegate cameraViewDelegate) {
@@ -422,28 +559,69 @@ public class CameraXView extends BaseCameraView {
     }
 
     public void setZoom(float value) {
-        controller.setZoom(value);
+        if (controller == null) {
+            return;
+        }
+        try {
+            controller.setZoom(value);
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
     public float resetZoom() {
-        return controller.resetZoom();
+        if (controller == null) {
+            return 0f;
+        }
+        try {
+            return controller.resetZoom();
+        } catch (Exception e) {
+            return 0f;
+        }
     }
 
     public boolean isHdrModeSupported() {
-        return controller.isAvailableHdrMode();
+        if (controller == null) {
+            return false;
+        }
+        try {
+            return controller.isAvailableHdrMode();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public boolean isWideModeSupported() {
-        return controller.isAvailableWideMode();
+        if (controller == null) {
+            return false;
+        }
+        try {
+            return controller.isAvailableWideMode();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public boolean isNightModeSupported() {
-        return controller.isAvailableNightMode();
+        if (controller == null) {
+            return false;
+        }
+        try {
+            return controller.isAvailableNightMode();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public boolean isAutoModeSupported() {
-        return controller.isAvailableAutoMode();
+        if (controller == null) {
+            return false;
+        }
+        try {
+            return controller.isAvailableAutoMode();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public boolean isExposureCompensationSupported() {
@@ -454,11 +632,24 @@ public class CameraXView extends BaseCameraView {
     }
 
     public void setExposureCompensation(float value) {
-        controller.setExposureCompensation(value);
+        if (controller == null) {
+            return;
+        }
+        try {
+            controller.setExposureCompensation(value);
+        } catch (Exception ignored) {
+        }
     }
 
     public void focusToPoint(int x, int y) {
-        controller.focusToPoint(x, y);
+        if (controller == null) {
+            return;
+        }
+        try {
+            controller.focusToPoint(x, y);
+        } catch (Exception ignored) {
+            return;
+        }
         focusProgress = 0.0f;
         innerAlpha = 1.0f;
         outerAlpha = 1.0f;
@@ -469,7 +660,14 @@ public class CameraXView extends BaseCameraView {
     }
 
     public Size getPreviewSize() {
-        return controller.getPreviewSize();
+        if (controller == null) {
+            return new Size(0, 0);
+        }
+        try {
+            return controller.getPreviewSize();
+        } catch (Exception e) {
+            return new Size(0, 0);
+        }
     }
 
     public float getTextureHeight(float width, float height) {
@@ -484,6 +682,9 @@ public class CameraXView extends BaseCameraView {
         } else {
             frameWidth = previewSize.getHeight();
             frameHeight = previewSize.getWidth();
+        }
+        if (frameWidth <= 0 || frameHeight <= 0) {
+            return height;
         }
         float s = Math.max(width / (float) frameWidth, height / (float) frameHeight);
         return (int) (s * frameHeight);
@@ -531,13 +732,25 @@ public class CameraXView extends BaseCameraView {
 
     @SuppressLint("RestrictedApi")
     public void recordVideo(final File path, boolean mirrorThumb, VideoSavedCallback onStop) {
-        controller.recordVideo(path, mirrorThumb, onStop);
+        if (controller == null || path == null) {
+            return;
+        }
+        try {
+            controller.recordVideo(path, mirrorThumb, onStop);
+        } catch (Exception ignored) {
+        }
     }
 
 
     @SuppressLint("RestrictedApi")
     public void stopVideoRecording(final boolean abandon) {
-        controller.stopVideoRecording(abandon);
+        if (controller == null) {
+            return;
+        }
+        try {
+            controller.stopVideoRecording(abandon);
+        } catch (Exception ignored) {
+        }
     }
 
     public boolean isFlooding() {
@@ -545,8 +758,15 @@ public class CameraXView extends BaseCameraView {
     }
 
     public void takePicture(final File file, Runnable onTake) {
+        if (controller == null || file == null) {
+            return;
+        }
         mLastClickTime = SystemClock.elapsedRealtime();
-        controller.takePicture(file, onTake);
+        try {
+            controller.takePicture(file, onTake);
+        } catch (Exception ignored) {
+            return;
+        }
         runHaptic();
     }
 
@@ -559,10 +779,16 @@ public class CameraXView extends BaseCameraView {
     public void runHaptic() {
         long[] vibrationWaveFormDurationPattern = {0, 1};
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            final Vibrator vibrator = (Vibrator) getContext().getSystemService(Context.VIBRATOR_SERVICE);
-            VibrationEffect vibrationEffect = VibrationEffect.createWaveform(vibrationWaveFormDurationPattern, -1);
-            vibrator.cancel();
-            vibrator.vibrate(vibrationEffect);
+            try {
+                final Vibrator vibrator = (Vibrator) getContext().getSystemService(Context.VIBRATOR_SERVICE);
+                if (vibrator == null || !vibrator.hasVibrator()) {
+                    return;
+                }
+                VibrationEffect vibrationEffect = VibrationEffect.createWaveform(vibrationWaveFormDurationPattern, -1);
+                vibrator.cancel();
+                vibrator.vibrate(vibrationEffect);
+            } catch (SecurityException | NullPointerException ignored) {
+            }
         } else {
             performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP, HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING);
         }
@@ -570,7 +796,7 @@ public class CameraXView extends BaseCameraView {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        if (controller != null) {
+        if (controller != null && blurredStubView != null && blurredStubView.getLayoutParams() != null) {
             int frameWidth, frameHeight;
             Size previewSize = getPreviewSize();
             if (worldOrientation == 90 || worldOrientation == 270) {
@@ -580,9 +806,11 @@ public class CameraXView extends BaseCameraView {
                 frameWidth = previewSize.getHeight();
                 frameHeight = previewSize.getWidth();
             }
-            float s = Math.max(MeasureSpec.getSize(widthMeasureSpec) / (float) frameWidth, MeasureSpec.getSize(heightMeasureSpec) / (float) frameHeight);
-            blurredStubView.getLayoutParams().width = (int) (s * frameWidth);
-            blurredStubView.getLayoutParams().height = (int) (s * frameHeight);
+            if (frameWidth > 0 && frameHeight > 0) {
+                float s = Math.max(MeasureSpec.getSize(widthMeasureSpec) / (float) frameWidth, MeasureSpec.getSize(heightMeasureSpec) / (float) frameHeight);
+                blurredStubView.getLayoutParams().width = (int) (s * frameWidth);
+                blurredStubView.getLayoutParams().height = (int) (s * frameHeight);
+            }
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
     }
@@ -595,19 +823,49 @@ public class CameraXView extends BaseCameraView {
 
     @Override
     protected void onDraw(Canvas canvas) {
-        if (thumbDrawable != null) {
+        if (thumbDrawable != null && canvas != null) {
             bounds.set(0, 0, getMeasuredWidth(), getMeasuredHeight());
             int W = thumbDrawable.getIntrinsicWidth(), H = thumbDrawable.getIntrinsicHeight();
-            float scale = 1f / Math.min(W / (float) Math.max(1, bounds.width()), H / (float) Math.max(1, bounds.height()));
-            thumbDrawable.setBounds(
-                    (int) (bounds.centerX() - W * scale / 2f),
-                    (int) (bounds.centerY() - H * scale / 2f),
-                    (int) (bounds.centerX() + W * scale / 2f),
-                    (int) (bounds.centerY() + H * scale / 2f)
-            );
-            thumbDrawable.draw(canvas);
+            if (W > 0 && H > 0 && bounds.width() > 0 && bounds.height() > 0) {
+                float scale = 1f / Math.min(W / (float) Math.max(1, bounds.width()), H / (float) Math.max(1, bounds.height()));
+                thumbDrawable.setBounds(
+                        (int) (bounds.centerX() - W * scale / 2f),
+                        (int) (bounds.centerY() - H * scale / 2f),
+                        (int) (bounds.centerX() + W * scale / 2f),
+                        (int) (bounds.centerY() + H * scale / 2f)
+                );
+                thumbDrawable.draw(canvas);
+            }
         }
         super.onDraw(canvas);
+    }
+
+    private void recyclePlaceholder() {
+        try {
+            Drawable d = placeholderView.getDrawable();
+            placeholderView.setImageDrawable(null);
+            if (d instanceof BitmapDrawable) {
+                Bitmap b = ((BitmapDrawable) d).getBitmap();
+                if (b != null && !b.isRecycled()) {
+                    b.recycle();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void recycleBlurredBackground() {
+        try {
+            Drawable d = blurredStubView.getBackground();
+            blurredStubView.setBackground(null);
+            if (d instanceof BitmapDrawable) {
+                Bitmap b = ((BitmapDrawable) d).getBitmap();
+                if (b != null && !b.isRecycled()) {
+                    b.recycle();
+                }
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     @Override

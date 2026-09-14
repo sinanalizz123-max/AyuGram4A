@@ -885,7 +885,13 @@ public class ContactsController extends BaseController {
                             }
                         }
                     }
-                    pCur.close();
+                    try {
+                        if (pCur != null) {
+                            pCur.close();
+                        }
+                    } catch (Exception ignore) {
+                    }
+                    pCur = null;
                 }
             }
 

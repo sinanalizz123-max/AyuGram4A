@@ -1010,11 +1010,7 @@ public class PasscodeActivity extends BaseFragment implements NotificationCenter
                 SharedConfig.passcodeSalt = new byte[16];
                 Utilities.random.nextBytes(SharedConfig.passcodeSalt);
                 byte[] passcodeBytes = firstPassword.getBytes("UTF-8");
-                byte[] bytes = new byte[32 + passcodeBytes.length];
-                System.arraycopy(SharedConfig.passcodeSalt, 0, bytes, 0, 16);
-                System.arraycopy(passcodeBytes, 0, bytes, 16, passcodeBytes.length);
-                System.arraycopy(SharedConfig.passcodeSalt, 0, bytes, passcodeBytes.length + 16, 16);
-                SharedConfig.passcodeHash = Utilities.bytesToHex(Utilities.computeSHA256(bytes, 0, bytes.length));
+                SharedConfig.passcodeHash = Utilities.bytesToHex(Utilities.computePBKDF2(passcodeBytes, SharedConfig.passcodeSalt));
             } catch (Exception e) {
                 FileLog.e(e);
             }

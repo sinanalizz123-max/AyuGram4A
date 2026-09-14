@@ -40,6 +40,8 @@ public class AvatarCornersPreviewCell extends FrameLayout {
 
     private final RectF rect = new RectF();
     private final Paint outlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path clipPath = new Path();
 
     private int lastWidth;
 
@@ -70,7 +72,6 @@ public class AvatarCornersPreviewCell extends FrameLayout {
         outlinePaint.setStrokeWidth(Math.max(2, AndroidUtilities.dp(1f)));
 
         preview = new FrameLayout(context) {
-            @SuppressLint("DrawAllocation")
             @Override
             protected void onDraw(Canvas canvas) {
                 int color = Theme.getColor(Theme.key_switchTrack);
@@ -81,26 +82,28 @@ public class AvatarCornersPreviewCell extends FrameLayout {
                 float h = getMeasuredHeight();
 
                 rect.set(0, 0, w, h);
-                Theme.dialogs_onlineCirclePaint.setColor(Color.argb(20, r, g, b));
-                canvas.drawRoundRect(rect, AndroidUtilities.dp(8), AndroidUtilities.dp(8), Theme.dialogs_onlineCirclePaint);
+                fillPaint.setColor(Color.argb(20, r, g, b));
+                canvas.drawRoundRect(rect, AndroidUtilities.dp(8), AndroidUtilities.dp(8), fillPaint);
 
                 float stroke = outlinePaint.getStrokeWidth() / 2;
                 rect.set(stroke, stroke, w - stroke, h - stroke);
                 canvas.drawRoundRect(rect, AndroidUtilities.dp(8), AndroidUtilities.dp(8), outlinePaint);
 
-                Theme.dialogs_onlineCirclePaint.setColor(Theme.getColor(Theme.key_chats_onlineCircle));
-                canvas.drawCircle(AndroidUtilities.dp(68), h / 2.0f + AndroidUtilities.dpf2(20.5f), AndroidUtilities.dp(7), Theme.dialogs_onlineCirclePaint);
+                fillPaint.setColor(Theme.getColor(Theme.key_chats_onlineCircle));
+                canvas.drawCircle(AndroidUtilities.dp(68), h / 2.0f + AndroidUtilities.dpf2(20.5f), AndroidUtilities.dp(7), fillPaint);
 
-                Theme.dialogs_onlineCirclePaint.setColor(Color.argb(204, r, g, b));
-                canvas.drawRoundRect(AndroidUtilities.dp(92), h / 2.0f - AndroidUtilities.dpf2(7.5f), w - AndroidUtilities.dp(90), h / 2.0f - AndroidUtilities.dpf2(15.5f), w / 2.0f, w / 2.0f, Theme.dialogs_onlineCirclePaint);
+                fillPaint.setColor(Color.argb(204, r, g, b));
+                canvas.drawRoundRect(AndroidUtilities.dp(92), h / 2.0f - AndroidUtilities.dpf2(7.5f), w - AndroidUtilities.dp(90), h / 2.0f - AndroidUtilities.dpf2(15.5f), w / 2.0f, w / 2.0f, fillPaint);
 
-                @SuppressLint("DrawAllocation") Path online = new Path();
-                online.addCircle(AndroidUtilities.dp(68), h / 2.0f + AndroidUtilities.dpf2(20.5f), AndroidUtilities.dp(12), Path.Direction.CCW);
-                canvas.clipPath(online, Region.Op.DIFFERENCE);
+                canvas.save();
+                clipPath.rewind();
+                clipPath.addCircle(AndroidUtilities.dp(68), h / 2.0f + AndroidUtilities.dpf2(20.5f), AndroidUtilities.dp(12), Path.Direction.CCW);
+                canvas.clipPath(clipPath, Region.Op.DIFFERENCE);
 
-                Theme.dialogs_onlineCirclePaint.setColor(Color.argb(90, r, g, b));
-                canvas.drawRoundRect(AndroidUtilities.dp(92), h / 2.0f + AndroidUtilities.dpf2(7.5f), w - AndroidUtilities.dp(50), h / 2.0f + AndroidUtilities.dp(15.5f), w / 2.0f, w / 2.0f, Theme.dialogs_onlineCirclePaint);
-                canvas.drawRoundRect(AndroidUtilities.dp(20), h / 2.0f - AndroidUtilities.dp(28), AndroidUtilities.dp(76), h / 2.0f + AndroidUtilities.dp(28), ExteraConfig.getAvatarCorners(56), ExteraConfig.getAvatarCorners(56), Theme.dialogs_onlineCirclePaint);
+                fillPaint.setColor(Color.argb(90, r, g, b));
+                canvas.drawRoundRect(AndroidUtilities.dp(92), h / 2.0f + AndroidUtilities.dpf2(7.5f), w - AndroidUtilities.dp(50), h / 2.0f + AndroidUtilities.dp(15.5f), w / 2.0f, w / 2.0f, fillPaint);
+                canvas.drawRoundRect(AndroidUtilities.dp(20), h / 2.0f - AndroidUtilities.dp(28), AndroidUtilities.dp(76), h / 2.0f + AndroidUtilities.dp(28), ExteraConfig.getAvatarCorners(56), ExteraConfig.getAvatarCorners(56), fillPaint);
+                canvas.restore();
             }
         };
         preview.setWillNotDraw(false);
@@ -114,8 +117,12 @@ public class AvatarCornersPreviewCell extends FrameLayout {
     @Override
     public void invalidate() {
         super.invalidate();
-        preview.invalidate();
-        seekBar.invalidate();
+        if (preview != null) {
+            preview.invalidate();
+        }
+        if (seekBar != null) {
+            seekBar.invalidate();
+        }
         lastWidth = -1;
     }
 

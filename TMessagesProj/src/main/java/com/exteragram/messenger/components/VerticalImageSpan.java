@@ -21,6 +21,7 @@ import android.graphics.drawable.Drawable;
 import android.text.SpannableStringBuilder;
 import android.text.style.ImageSpan;
 
+import org.telegram.messenger.AndroidUtilities;
 import org.telegram.messenger.LocaleController;
 import org.telegram.ui.ActionBar.Theme;
 
@@ -36,6 +37,9 @@ public class VerticalImageSpan extends ImageSpan {
     @Override
     public int getSize(Paint paint, CharSequence text, int start, int end, Paint.FontMetricsInt fontMetricsInt) {
         Drawable drawable = getDrawable();
+        if (drawable == null) {
+            return 0;
+        }
         Rect rect = drawable.getBounds();
         if (fontMetricsInt != null) {
             Paint.FontMetricsInt fmPaint = paint.getFontMetricsInt();
@@ -54,6 +58,9 @@ public class VerticalImageSpan extends ImageSpan {
     @Override
     public void draw(Canvas canvas, CharSequence text, int start, int end, float x, int top, int y, int bottom, Paint paint) {
         Drawable drawable = getDrawable();
+        if (drawable == null || canvas == null) {
+            return;
+        }
         canvas.save();
         Paint.FontMetricsInt fmPaint = paint.getFontMetricsInt();
         int fontHeight = fmPaint.descent - fmPaint.ascent;
@@ -61,7 +68,9 @@ public class VerticalImageSpan extends ImageSpan {
         int transY = centerY - (drawable.getBounds().bottom - drawable.getBounds().top) / 2;
         canvas.translate(x, transY);
         if (LocaleController.isRTL) {
-            canvas.scale(-1, 1, drawable.getIntrinsicWidth() >> 1, drawable.getIntrinsicHeight() >> 1);
+            int iw = drawable.getIntrinsicWidth() > 0 ? drawable.getIntrinsicWidth() : drawable.getBounds().width();
+            int ih = drawable.getIntrinsicHeight() > 0 ? drawable.getIntrinsicHeight() : drawable.getBounds().height();
+            canvas.scale(-1, 1, iw >> 1, ih >> 1);
         }
         drawable.draw(canvas);
         canvas.restore();
@@ -72,15 +81,34 @@ public class VerticalImageSpan extends ImageSpan {
     }
 
     public static SpannableStringBuilder createSpan(Context context, int resId, String text, String replace, int color, Theme.ResourcesProvider resourcesProvider) {
+        if (text == null) {
+            text = "";
+        }
         SpannableStringBuilder builder = new SpannableStringBuilder(text);
+        if (replace == null || replace.isEmpty() || context == null) {
+            return builder;
+        }
         List<Integer> beginIndexes = new ArrayList<>();
         int index = text.indexOf(replace);
         while (index >= 0) {
             beginIndexes.add(index);
+            if (index + 1 >= text.length()) {
+                break;
+            }
             index = text.indexOf(replace, index + 1);
         }
-        Drawable drawable = context.getDrawable(resId);
-        drawable.setBounds(0, 0, drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight());
+        Drawable drawable;
+        try {
+            drawable = context.getDrawable(resId);
+        } catch (Exception e) {
+            return builder;
+        }
+        if (drawable == null) {
+            return builder;
+        }
+        int iw = drawable.getIntrinsicWidth() > 0 ? drawable.getIntrinsicWidth() : AndroidUtilities.dp(20);
+        int ih = drawable.getIntrinsicHeight() > 0 ? drawable.getIntrinsicHeight() : AndroidUtilities.dp(20);
+        drawable.setBounds(0, 0, iw, ih);
         drawable.setColorFilter(new PorterDuffColorFilter(Theme.getColor(color, resourcesProvider), PorterDuff.Mode.MULTIPLY));
         if (!beginIndexes.isEmpty()) {
             for (int begin : beginIndexes) {

@@ -42,8 +42,15 @@ public class CameraXUtils {
         return SharedConfig.getDevicePerformanceClass() >= SharedConfig.PERFORMANCE_CLASS_AVERAGE;
     }
 
-    public static boolean isWideAngleAvailable(ProcessCameraProvider provider) {
-        return getWideCameraId(provider) != null;
+    public static synchronized boolean isWideAngleAvailable(ProcessCameraProvider provider) {
+        if (provider == null) {
+            return false;
+        }
+        try {
+            return getWideCameraId(provider) != null;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     @SuppressLint("UnsafeOptInUsageError")
@@ -67,18 +74,21 @@ public class CameraXUtils {
                 + "getDefaultWideAngleCamera.");
     }
 
-    public static Map<Quality, Size> getAvailableVideoSizes() throws IllegalStateException {
+    public static synchronized Map<Quality, Size> getAvailableVideoSizes() throws IllegalStateException {
         if (qualityException != null) {
             throw new IllegalStateException("CameraX sizes failed to load!", qualityException);
         }
         return qualityToSize == null ? new HashMap<>() : qualityToSize;
     }
 
-    public static void loadCameraXSizes() {
+    public static synchronized void loadCameraXSizes() {
         if (qualityToSize != null || qualityException != null) {
             return;
         }
         Context context = ApplicationLoader.applicationContext;
+        if (context == null) {
+            return;
+        }
         ListenableFuture<ProcessCameraProvider> providerFtr = ProcessCameraProvider.getInstance(context);
         providerFtr.addListener(() -> {
             ProcessCameraProvider provider = null;
@@ -86,16 +96,24 @@ public class CameraXUtils {
                 CameraSelector.Builder cameraBuilder = new CameraSelector.Builder();
                 provider = providerFtr.get();
                 CameraSelector camera = cameraBuilder.build();
-                qualityToSize = getAvailableVideoSizes(camera, provider);
+                Map<Quality, Size> sizes = getAvailableVideoSizes(camera, provider);
+                synchronized (CameraXUtils.class) {
+                    qualityToSize = sizes;
+                }
                 loadSuggestedResolution();
             } catch (Exception e) {
-                qualityException = e;
+                synchronized (CameraXUtils.class) {
+                    qualityException = e;
+                }
             } finally {
                 if (provider != null) {
-                    provider.unbindAll();
+                    try {
+                        provider.unbindAll();
+                    } catch (Exception ignored) {
+                    }
                 }
             }
-        }, ContextCompat.getMainExecutor(context));
+        }, Runnable::run);
     }
 
     private static Map<Quality, Size> getAvailableVideoSizes(CameraSelector cameraSelector, ProcessCameraProvider provider) {
@@ -112,9 +130,17 @@ public class CameraXUtils {
                 ).orElse(new HashMap<>());
     }
 
-    public static void loadSuggestedResolution() {
+    public static synchronized void loadSuggestedResolution() {
         int suggestedRes = getSuggestedResolution(false);
-        Map<Quality, Size> sizes = getAvailableVideoSizes();
+        Map<Quality, Size> sizes;
+        try {
+            sizes = getAvailableVideoSizes();
+        } catch (IllegalStateException e) {
+            return;
+        }
+        if (sizes == null || sizes.isEmpty()) {
+            return;
+        }
 
         int min = sizes.values().parallelStream()
                 .mapToInt(Size::getHeight)
@@ -124,37 +150,51 @@ public class CameraXUtils {
                 .mapToInt(Size::getHeight)
                 .max().orElse(0);
 
-        getAvailableVideoSizes().values().parallelStream()
-                .sorted(Comparator.comparingInt(Size::getHeight).reversed())
-                .mapToInt(Size::getHeight)
-                .filter(height -> height <= suggestedRes)
-                .findFirst()
-                .ifPresent(height -> {
-                    cameraResolution = height;
-                    if (ExteraConfig.cameraResolution == -1 || ExteraConfig.cameraResolution > max || ExteraConfig.cameraResolution < min) {
-                        ExteraConfig.editor.putInt("cameraResolution", ExteraConfig.cameraResolution = height);
-                    }
-                });
+        try {
+            getAvailableVideoSizes().values().parallelStream()
+                    .sorted(Comparator.comparingInt(Size::getHeight).reversed())
+                    .mapToInt(Size::getHeight)
+                    .filter(height -> height <= suggestedRes)
+                    .findFirst()
+                    .ifPresent(height -> {
+                        cameraResolution = height;
+                        if (ExteraConfig.cameraResolution == -1 || ExteraConfig.cameraResolution > max || ExteraConfig.cameraResolution < min) {
+                            ExteraConfig.cameraResolution = height;
+                            if (ExteraConfig.editor != null) {
+                                ExteraConfig.editor.putInt("cameraResolution", height).apply();
+                            }
+                        }
+                    });
+        } catch (IllegalStateException ignored) {
+        }
     }
 
-    public static int getCameraResolution() {
+    public static synchronized int getCameraResolution() {
         return cameraResolution;
     }
 
-    public static Size getPreviewBestSize() {
+    public static synchronized Size getPreviewBestSize() {
         int suggestedRes = getSuggestedResolution(true);
-        return getAvailableVideoSizes().values().parallelStream()
-                .filter(size -> size.getHeight() <= ExteraConfig.cameraResolution && size.getHeight() <= suggestedRes)
-                .max(Comparator.comparingInt(Size::getHeight))
-                .orElse(new Size(0, 0));
+        try {
+            return getAvailableVideoSizes().values().parallelStream()
+                    .filter(size -> size != null && size.getHeight() <= ExteraConfig.cameraResolution && size.getHeight() <= suggestedRes)
+                    .max(Comparator.comparingInt(Size::getHeight))
+                    .orElse(new Size(0, 0));
+        } catch (IllegalStateException e) {
+            return new Size(0, 0);
+        }
     }
 
-    public static Quality getVideoQuality() {
-        return getAvailableVideoSizes().entrySet().parallelStream()
-                .filter(entry -> entry.getValue().getHeight() == ExteraConfig.cameraResolution)
-                .map(Map.Entry::getKey)
-                .findFirst()
-                .orElse(Quality.HIGHEST);
+    public static synchronized Quality getVideoQuality() {
+        try {
+            return getAvailableVideoSizes().entrySet().parallelStream()
+                    .filter(entry -> entry != null && entry.getValue() != null && entry.getValue().getHeight() == ExteraConfig.cameraResolution)
+                    .map(Map.Entry::getKey)
+                    .findFirst()
+                    .orElse(Quality.HIGHEST);
+        } catch (IllegalStateException e) {
+            return Quality.HIGHEST;
+        }
     }
 
     private static int getSuggestedResolution(boolean isPreview) {
@@ -175,9 +215,20 @@ public class CameraXUtils {
     }
 
     @SuppressLint({"RestrictedApi", "UnsafeOptInUsageError"})
-    public static String getWideCameraId(ProcessCameraProvider provider) {
+    public static synchronized String getWideCameraId(ProcessCameraProvider provider) {
+        if (provider == null) {
+            return null;
+        }
         float lowestAngledCamera = Integer.MAX_VALUE;
-        List<CameraInfo> cameraInfoList = provider.getAvailableCameraInfos();
+        List<CameraInfo> cameraInfoList;
+        try {
+            cameraInfoList = provider.getAvailableCameraInfos();
+        } catch (Exception e) {
+            return null;
+        }
+        if (cameraInfoList == null) {
+            return null;
+        }
         String cameraId = null;
         int availableBackCamera = 0;
         boolean foundWideAngleOnPrimaryCamera = false;
@@ -193,7 +244,7 @@ public class CameraXUtils {
                         foundWideAngleOnPrimaryCamera = true;
                     }
                     float[] listLensAngle = cameraCharacteristics.get(LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
-                    if (listLensAngle.length > 0) {
+                    if (listLensAngle != null && listLensAngle.length > 0) {
                         if (listLensAngle[0] < 3.0f && listLensAngle[0] < lowestAngledCamera) {
                             lowestAngledCamera = listLensAngle[0];
                             cameraId = id;

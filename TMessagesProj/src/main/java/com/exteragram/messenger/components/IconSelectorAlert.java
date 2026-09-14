@@ -42,6 +42,9 @@ public class IconSelectorAlert {
     private final static Paint selectedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     public static void show(BaseFragment fragment, View view, String selectedIcon, OnIconSelectedListener onIconSelectedListener) {
+        if (fragment == null || fragment.getParentActivity() == null || view == null) {
+            return;
+        }
         selectedPaint.setColor(Theme.getColor(Theme.key_windowBackgroundWhiteValueText));
 
         Context context = fragment.getParentActivity();
@@ -62,8 +65,11 @@ public class IconSelectorAlert {
 
         GridLayout gridLayout = new GridLayout(context);
         int columnCount = 6;
-        while (AndroidUtilities.displaySize.x - popupX < 48 * columnCount + AndroidUtilities.dp(8)) {
+        while (columnCount > 1 && AndroidUtilities.displaySize.x - popupX < 48 * columnCount + AndroidUtilities.dp(8)) {
             columnCount--;
+        }
+        if (columnCount < 1) {
+            columnCount = 1;
         }
         gridLayout.setColumnCount(columnCount);
 
@@ -74,7 +80,10 @@ public class IconSelectorAlert {
                 protected void onDraw(Canvas canvas) {
                     int p = AndroidUtilities.dp(6);
                     Drawable d = ContextCompat.getDrawable(context, FolderIcons.getTabIcon(icon));
-                    assert d != null;
+                    if (d == null) {
+                        super.onDraw(canvas);
+                        return;
+                    }
                     d.setColorFilter(new PorterDuffColorFilter(Theme.getColor(isSelected() ? Theme.key_windowBackgroundWhiteValueText : Theme.key_windowBackgroundWhiteGrayIcon), PorterDuff.Mode.MULTIPLY));
                     d.setBounds(p, p, getMeasuredWidth() - p, getMeasuredHeight() - p);
                     if (isSelected()) {
@@ -87,9 +96,9 @@ public class IconSelectorAlert {
                 }
             };
             imageView.setBackground(Theme.createRadSelectorDrawable(Theme.getColor(Theme.key_listSelector), 7, 7));
-            imageView.setSelected(icon.equals(selectedIcon));
+            imageView.setSelected(icon != null && icon.equals(selectedIcon));
             imageView.setOnClickListener(v -> {
-                if (selectedIcon.equals(icon)) {
+                if (selectedIcon != null ? selectedIcon.equals(icon) : icon == null) {
                     return;
                 }
                 if (scrimPopupWindowRef.get() != null) {
@@ -115,6 +124,23 @@ public class IconSelectorAlert {
         scrimPopupWindow.getContentView().setFocusableInTouchMode(true);
         scrimPopupWindow.showAtLocation(view, Gravity.LEFT | Gravity.TOP, popupX, popupY);
         scrimPopupWindow.dimBehind();
+        view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View v) {
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View v) {
+                ActionBarPopupWindow w = scrimPopupWindowRef.getAndSet(null);
+                if (w != null) {
+                    try {
+                        w.dismiss();
+                    } catch (Exception ignored) {
+                    }
+                }
+                v.removeOnAttachStateChangeListener(this);
+            }
+        });
     }
 
     public interface OnIconSelectedListener {

@@ -30,6 +30,7 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipException;
 
 import com.exteragram.messenger.ExteraConfig;
+import com.exteragram.messenger.utils.AyuDownloadEngine;
 
 public class FileLoadOperation {
 
@@ -171,6 +172,11 @@ public class FileLoadOperation {
     private byte[] iv;
     private int currentDownloadChunkSize;
     private int currentMaxDownloadRequests;
+    private int degradedMaxDownloadRequests;
+    private int consecutiveTransientFailures;
+    private static final int MAX_TRANSIENT_RETRIES = 5;
+    private static final long MIN_RETRY_DELAY_MS = 500;
+    private static final long MAX_RETRY_DELAY_MS = 5000;
     private int requestsCount;
     private int renameRetryCount;
 
@@ -245,6 +251,18 @@ public class FileLoadOperation {
             downloadChunkSizeBig = 1024 * 128;
             maxDownloadRequests = 4;
             maxDownloadRequestsBig = 4;
+        }
+        if (AyuDownloadEngine.isEnabled()) {
+            boolean wifi = AyuDownloadEngine.isWifi();
+            int chunk = AyuDownloadEngine.getChunkSize(wifi);
+            int req = AyuDownloadEngine.getMaxRequests(wifi);
+            downloadChunkSizeBig = chunk;
+            maxDownloadRequests = req;
+            maxDownloadRequestsBig = req;
+            if (currentDownloadChunkSize == 0) {
+                currentDownloadChunkSize = chunk;
+                currentMaxDownloadRequests = req;
+            }
         }
         maxCdnParts = (int) (FileLoader.DEFAULT_MAX_FILE_SIZE / downloadChunkSizeBig);
     }
@@ -462,6 +480,86 @@ public class FileLoadOperation {
         return started && !paused;
     }
 
+    private int getEffectiveMaxDownloadRequests() {
+        int max = currentMaxDownloadRequests;
+        if (degradedMaxDownloadRequests > 0) {
+            max = Math.min(max, degradedMaxDownloadRequests);
+        }
+        try {
+            boolean highPriority = isForceRequest || stream != null || priorityRequestInfo != null || priority >= (1 << 20);
+            int adjusted = FileLoader.getInstance(currentAccount).getEffectivePerFileMax(max, highPriority);
+            if (BuildVars.DEBUG_VERSION && adjusted != max) {
+                FileLog.d("download adaptive: file=" + fileName + " requestedMax=" + max + " effectiveMax=" + adjusted + " highPriority=" + highPriority + " dc=" + datacenterId + " cdn=" + isCdn);
+            }
+            max = adjusted;
+        } catch (Exception ignore) {
+        }
+        return Math.max(1, max);
+    }
+
+    private void applyDegrade(int maxRequests, String reason) {
+        if (maxRequests > 0) {
+            if (degradedMaxDownloadRequests == 0) {
+                degradedMaxDownloadRequests = maxRequests;
+            } else {
+                degradedMaxDownloadRequests = Math.min(degradedMaxDownloadRequests, maxRequests);
+            }
+        }
+        if (BuildVars.DEBUG_VERSION) {
+            FileLog.d("download adaptive: file=" + fileName + " degrade reason=" + reason + " degradedMax=" + degradedMaxDownloadRequests + " failures=" + consecutiveTransientFailures + " dc=" + datacenterId + " cdn=" + isCdn);
+        }
+        try {
+            FileLoader.getInstance(currentAccount).notifyDegradeOnce(reason);
+        } catch (Exception ignore) {
+        }
+    }
+
+    private int parseFloodWaitSeconds(String text) {
+        try {
+            int index = text.indexOf("FLOOD_WAIT_");
+            if (index < 0) {
+                return 0;
+            }
+            String number = text.substring(index + "FLOOD_WAIT_".length()).replaceAll("[^0-9]", "");
+            if (number.isEmpty()) {
+                return 0;
+            }
+            return Integer.parseInt(number);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private void scheduleDownloadRetry(long delayMs) {
+        if (state != stateDownloading || paused) {
+            return;
+        }
+        long delay = Math.max(MIN_RETRY_DELAY_MS, delayMs);
+        Utilities.stageQueue.postRunnable(() -> {
+            if (state == stateDownloading && !paused) {
+                startDownloadRequest();
+            }
+        }, delay);
+    }
+
+    private boolean retryTransientFailure(String reason) {
+        consecutiveTransientFailures++;
+        degradedMaxDownloadRequests = degradedMaxDownloadRequests == 0 ? Math.max(1, currentMaxDownloadRequests / 2) : Math.max(1, degradedMaxDownloadRequests / 2);
+        long delay = MIN_RETRY_DELAY_MS << Math.min(consecutiveTransientFailures - 1, 3);
+        if (delay > MAX_RETRY_DELAY_MS) {
+            delay = MAX_RETRY_DELAY_MS;
+        }
+        if (BuildVars.DEBUG_VERSION) {
+            FileLog.d("download adaptive: file=" + fileName + " transient retry " + consecutiveTransientFailures + "/" + MAX_TRANSIENT_RETRIES + " reason=" + reason + " delay=" + delay + " degradedMax=" + degradedMaxDownloadRequests + " dc=" + datacenterId + " cdn=" + isCdn);
+        }
+        if (consecutiveTransientFailures >= MAX_TRANSIENT_RETRIES) {
+            applyDegrade(1, reason);
+            return false;
+        }
+        scheduleDownloadRetry(delay);
+        return true;
+    }
+
     public int getCurrentType() {
         return currentType;
     }
@@ -673,7 +771,7 @@ public class FileLoadOperation {
         if (totalBytesCount == 0 || ranges == null) {
             return 0;
         }
-        return progress + getDownloadedLengthFromOffsetInternal(ranges, (int) (totalBytesCount * progress), totalBytesCount) / (float) totalBytesCount;
+        return progress + getDownloadedLengthFromOffsetInternal(ranges, (long) (totalBytesCount * progress), totalBytesCount) / (float) totalBytesCount;
     }
 
     protected long[] getDownloadedLengthFromOffset(final long offset, final long length) {
@@ -728,6 +826,9 @@ public class FileLoadOperation {
     public boolean start(final FileLoadOperationStream stream, final long streamOffset, final boolean streamPriority) {
         startTime = System.currentTimeMillis();
         updateParams();
+        if (AyuDownloadEngine.isEnabled() && !AyuDownloadEngine.checkStorageForLargeFile(totalBytesCount)) {
+            return false;
+        }
         if (currentDownloadChunkSize == 0) {
             if (isStream) {
                 currentDownloadChunkSize = downloadChunkSizeAnimation;
@@ -736,6 +837,9 @@ public class FileLoadOperation {
                 currentDownloadChunkSize = totalBytesCount >= bigFileSizeFrom ? downloadChunkSizeBig : downloadChunkSize;
                 currentMaxDownloadRequests = totalBytesCount >= bigFileSizeFrom ? maxDownloadRequestsBig : maxDownloadRequests;
             }
+        }
+        if (BuildVars.DEBUG_VERSION) {
+            FileLog.d("download adaptive: start total=" + totalBytesCount + " chunk=" + currentDownloadChunkSize + " maxReq=" + currentMaxDownloadRequests + " effectiveMax=" + getEffectiveMaxDownloadRequests() + " dc=" + datacenterId + " cdn=" + isCdn + " engine=" + AyuDownloadEngine.isEnabled() + " throughput=" + AyuDownloadEngine.getThroughputBps());
         }
         final boolean alreadyStarted = state != stateIdle;
         final boolean wasPaused = paused;
@@ -1013,10 +1117,21 @@ public class FileLoadOperation {
                     if (len % 8 == 4) {
                         len -= 4;
                         int count = filePartsStream.readInt();
-                        if (count <= len / 2) {
+                        if (count >= 0 && count <= len / 2 && notLoadedBytesRanges != null && notRequestedBytesRanges != null) {
                             for (int a = 0; a < count; a++) {
                                 long start = filePartsStream.readLong();
                                 long end = filePartsStream.readLong();
+                                if (start < 0 || end <= start) {
+                                    continue;
+                                }
+                                if (totalBytesCount > 0) {
+                                    if (start >= totalBytesCount) {
+                                        continue;
+                                    }
+                                    if (end > totalBytesCount) {
+                                        end = totalBytesCount;
+                                    }
+                                }
                                 notLoadedBytesRanges.add(new Range(start, end));
                                 notRequestedBytesRanges.add(new Range(start, end));
                             }
@@ -1024,6 +1139,12 @@ public class FileLoadOperation {
                     }
                 } catch (Exception e) {
                     FileLog.e(e);
+                    if (notLoadedBytesRanges != null) {
+                        notLoadedBytesRanges.clear();
+                    }
+                    if (notRequestedBytesRanges != null) {
+                        notRequestedBytesRanges.clear();
+                    }
                 }
             }
 
@@ -1041,6 +1162,12 @@ public class FileLoadOperation {
                         requestedBytesCount = 0;
                     } else {
                         requestedBytesCount = downloadedBytes = (cacheFileTemp.length()) / ((long) currentDownloadChunkSize) * currentDownloadChunkSize;
+                    }
+                    if (totalBytesCount > 0 && downloadedBytes > totalBytesCount) {
+                        if (BuildVars.DEBUG_VERSION) {
+                            FileLog.d("download resume: file=" + fileName + " stale temp len=" + totalDownloadedLen + " total=" + totalBytesCount + ", restarting from 0");
+                        }
+                        requestedBytesCount = downloadedBytes = 0;
                     }
                     if (notLoadedBytesRanges != null && notLoadedBytesRanges.isEmpty()) {
                         notLoadedBytesRanges.add(new Range(downloadedBytes, totalBytesCount));
@@ -1266,6 +1393,20 @@ public class FileLoadOperation {
                 RequestInfo requestInfo = requestInfos.get(a);
                 if (requestInfo.requestToken != 0) {
                     ConnectionsManager.getInstance(currentAccount).cancelRequest(requestInfo.requestToken, false);
+                    requestInfo.requestToken = 0;
+                }
+                if (requestInfo.response != null) {
+                    requestInfo.response.disableFree = false;
+                    requestInfo.response.freeResources();
+                    requestInfo.response = null;
+                } else if (requestInfo.responseWeb != null) {
+                    requestInfo.responseWeb.disableFree = false;
+                    requestInfo.responseWeb.freeResources();
+                    requestInfo.responseWeb = null;
+                } else if (requestInfo.responseCdn != null) {
+                    requestInfo.responseCdn.disableFree = false;
+                    requestInfo.responseCdn.freeResources();
+                    requestInfo.responseCdn = null;
                 }
             }
         }
@@ -1350,6 +1491,24 @@ public class FileLoadOperation {
                 }
             }
             delayedRequestInfos.clear();
+        }
+        if (requestInfos != null) {
+            for (int a = 0; a < requestInfos.size(); a++) {
+                RequestInfo requestInfo = requestInfos.get(a);
+                if (requestInfo.response != null) {
+                    requestInfo.response.disableFree = false;
+                    requestInfo.response.freeResources();
+                    requestInfo.response = null;
+                } else if (requestInfo.responseWeb != null) {
+                    requestInfo.responseWeb.disableFree = false;
+                    requestInfo.responseWeb.freeResources();
+                    requestInfo.responseWeb = null;
+                } else if (requestInfo.responseCdn != null) {
+                    requestInfo.responseCdn.disableFree = false;
+                    requestInfo.responseCdn.freeResources();
+                    requestInfo.responseCdn = null;
+                }
+            }
         }
     }
 
@@ -1516,6 +1675,20 @@ public class FileLoadOperation {
     }
 
     private void delayRequestInfo(RequestInfo requestInfo) {
+        int effectiveMax = getEffectiveMaxDownloadRequests();
+        if (delayedRequestInfos.size() >= 4 * effectiveMax) {
+            if (BuildVars.DEBUG_VERSION) {
+                FileLog.d("download backpressure: file=" + fileName + " dropping out-of-order part offset=" + requestInfo.offset + " delayed=" + delayedRequestInfos.size() + " effectiveMax=" + effectiveMax);
+            }
+            if (requestInfo.response != null) {
+                requestInfo.response.freeResources();
+            } else if (requestInfo.responseWeb != null) {
+                requestInfo.responseWeb.freeResources();
+            } else if (requestInfo.responseCdn != null) {
+                requestInfo.responseCdn.freeResources();
+            }
+            return;
+        }
         delayedRequestInfos.add(requestInfo);
         if (requestInfo.response != null) {
             requestInfo.response.disableFree = true;
@@ -1583,6 +1756,7 @@ public class FileLoadOperation {
         req.offset = offset;
         ConnectionsManager.getInstance(currentAccount).sendRequest(req, (response, error) -> {
             if (error != null) {
+                applyDegrade(1, "cdn_hashes");
                 onFail(false, 0);
             } else {
                 requestingCdnOffsets = false;
@@ -1628,6 +1802,7 @@ public class FileLoadOperation {
         }
         requestInfos.remove(requestInfo);
         if (error == null) {
+            consecutiveTransientFailures = 0;
             try {
                 if (notLoadedBytesRanges == null && downloadedBytes != requestInfo.offset) {
                     delayRequestInfo(requestInfo);
@@ -1717,6 +1892,10 @@ public class FileLoadOperation {
                     }
                 } else {
                     downloadedBytes += currentBytesSize;
+                    if (AyuDownloadEngine.isEnabled()) {
+                        long latency = requestInfo.requestStartTime != 0 ? System.currentTimeMillis() - requestInfo.requestStartTime : 0;
+                        AyuDownloadEngine.onChunkReceived(currentBytesSize, latency);
+                    }
                     if (totalBytesCount > 0) {
                         finishedDownloading = downloadedBytes >= totalBytesCount;
                     } else {
@@ -1796,6 +1975,7 @@ public class FileLoadOperation {
                                             FileLog.e("invalid cdn hash  " + webLocation + " id = " + fileName);
                                         }
                                     }
+                                    applyDegrade(1, "cdn_hash");
                                     onFail(false, 0);
                                     cacheFileTemp.delete();
                                     return false;
@@ -1852,12 +2032,31 @@ public class FileLoadOperation {
                 }
             }
         } else {
+            if (AyuDownloadEngine.isEnabled()) {
+                AyuDownloadEngine.onServerError(error.text);
+            }
             if (error.text.contains("LIMIT_INVALID") && !requestInfo.forceSmallChunk) {
                 if (!forceSmallChunk) {
                     forceSmallChunk = true;
                     currentDownloadChunkSize = 0;
                     pause();
                     start();
+                }
+            } else if (error.text.contains("FLOOD_WAIT_")) {
+                int waitSeconds = parseFloodWaitSeconds(error.text);
+                long delay = waitSeconds > 0 ? (long) waitSeconds * 1000L : MIN_RETRY_DELAY_MS;
+                if (delay < MIN_RETRY_DELAY_MS) {
+                    delay = MIN_RETRY_DELAY_MS;
+                }
+                consecutiveTransientFailures++;
+                applyDegrade(1, "flood_wait");
+                if (BuildVars.DEBUG_VERSION) {
+                    FileLog.d("download adaptive: file=" + fileName + " FLOOD_WAIT retry failures=" + consecutiveTransientFailures + " delay=" + delay + " dc=" + datacenterId + " cdn=" + isCdn);
+                }
+                if (consecutiveTransientFailures >= MAX_TRANSIENT_RETRIES) {
+                    onFail(false, 0);
+                } else {
+                    scheduleDownloadRetry(delay);
                 }
             } else if (error.text.contains("FILE_MIGRATE_")) {
                 String errorMsg = error.text.replace("FILE_MIGRATE_", "");
@@ -1874,6 +2073,10 @@ public class FileLoadOperation {
                 } else {
                     datacenterId = val;
                     requestedBytesCount = downloadedBytes = 0;
+                    degradedMaxDownloadRequests = degradedMaxDownloadRequests == 0 ? Math.max(1, currentMaxDownloadRequests / 2) : Math.max(1, degradedMaxDownloadRequests / 2);
+                    if (BuildVars.DEBUG_VERSION) {
+                        FileLog.d("download adaptive: file=" + fileName + " FILE_MIGRATE to dc=" + val + " degradedMax=" + degradedMaxDownloadRequests);
+                    }
                     startDownloadRequest();
                 }
             } else if (error.text.contains("OFFSET_INVALID")) {
@@ -1889,6 +2092,10 @@ public class FileLoadOperation {
                 }
             } else if (error.text.contains("RETRY_LIMIT")) {
                 onFail(false, 2);
+            } else if (error.text.contains("TIMEOUT") || error.text.contains("TIMED_OUT") || error.text.contains("timeout") || error.text.contains("INTERNAL") || error.text.contains("RPC_CALL_FAIL") || error.text.contains("NETWORK_")) {
+                if (!retryTransientFailure("timeout")) {
+                    onFail(false, 0);
+                }
             } else {
                 if (BuildVars.LOGS_ENABLED) {
                     if (location != null) {
@@ -2001,15 +2208,19 @@ public class FileLoadOperation {
                 throw new RuntimeException("Wrong thread!!!");
             }
         }
+        int effectiveMax = getEffectiveMaxDownloadRequests();
         if (paused || reuploadingCdn || state != stateDownloading || requestingReference ||
                 streamPriorityStartOffset == 0 && (
-                        !nextPartWasPreloaded && (requestInfos.size() + delayedRequestInfos.size() >= currentMaxDownloadRequests) ||
+                        !nextPartWasPreloaded && (requestInfos.size() + delayedRequestInfos.size() >= effectiveMax) ||
                                 isPreloadVideoOperation && (requestedBytesCount > preloadMaxBytes || moovFound != 0 && requestInfos.size() > 0))) {
+            return;
+        }
+        if (delayedRequestInfos.size() >= 2 * effectiveMax) {
             return;
         }
         int count = 1;
         if (streamPriorityStartOffset == 0 && !nextPartWasPreloaded && (!isPreloadVideoOperation || moovFound != 0) && totalBytesCount > 0) {
-            count = Math.max(0, currentMaxDownloadRequests - requestInfos.size());
+            count = Math.max(0, effectiveMax - requestInfos.size());
         }
 
         for (int a = 0; a < count; a++) {
@@ -2101,6 +2312,13 @@ public class FileLoadOperation {
                 flags |= ConnectionsManager.RequestFlagEnableUnauthorized;
             } else {
                 if (webLocation != null) {
+                    if (downloadOffset > Integer.MAX_VALUE) {
+                        if (BuildVars.DEBUG_VERSION) {
+                            FileLog.d("download adaptive: file=" + fileName + " web offset " + downloadOffset + " exceeds int range, failing");
+                        }
+                        onFail(false, 0);
+                        break;
+                    }
                     TLRPC.TL_upload_getWebFile req = new TLRPC.TL_upload_getWebFile();
                     req.location = webLocation;
                     req.offset = (int) downloadOffset;
@@ -2184,6 +2402,7 @@ public class FileLoadOperation {
                     } else if (request instanceof TLRPC.TL_upload_getCdnFile) {
                         if (error.text.equals("FILE_TOKEN_INVALID")) {
                             isCdn = false;
+                            applyDegrade(1, "cdn_fallback");
                             clearOperaion(requestInfo, false);
                             startDownloadRequest();
                             return;
@@ -2244,9 +2463,11 @@ public class FileLoadOperation {
                             } else {
                                 if (error1.text.equals("FILE_TOKEN_INVALID") || error1.text.equals("REQUEST_TOKEN_INVALID")) {
                                     isCdn = false;
+                                    applyDegrade(1, "cdn_fallback");
                                     clearOperaion(requestInfo, false);
                                     startDownloadRequest();
                                 } else {
+                                    applyDegrade(1, "cdn_reupload");
                                     onFail(false, 0);
                                 }
                             }

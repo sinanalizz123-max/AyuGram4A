@@ -84,9 +84,19 @@ android {
     defaultConfig.versionCode = Integer.parseInt(APP_VERSION_CODE)
 
     Properties localProperties = new Properties()
-    if (project.rootProject.file('API_KEYS').exists()) {
-        localProperties.load(project.rootProject.file('API_KEYS').newDataInputStream())
+    if (project.rootProject.file('local/api.properties').exists()) {
+        localProperties.load(project.rootProject.file('local/api.properties').newDataInputStream())
     }
+    if (project.rootProject.file('API_KEYS').exists()) {
+        Properties legacyProps = new Properties()
+        legacyProps.load(project.rootProject.file('API_KEYS').newDataInputStream())
+        for (String name : legacyProps.stringPropertyNames()) {
+            if (!localProperties.containsKey(name)) {
+                localProperties.setProperty(name, legacyProps.getProperty(name))
+            }
+        }
+    }
+    def prop = { String name -> (localProperties.getProperty(name) ?: "").trim() }
 
     defaultConfig {
         minSdkVersion 21
@@ -94,12 +104,12 @@ android {
         versionName APP_VERSION_NAME
 
         // Obtain your own keys at: https://core.telegram.org/api/obtaining_api_id
-        buildConfigField 'int', 'APP_ID', localProperties.getProperty("APP_ID")
-        buildConfigField 'String', 'APP_HASH', localProperties.getProperty("APP_HASH")
+        buildConfigField 'int', 'APP_ID', prop("APP_ID")
+        buildConfigField 'String', 'APP_HASH', '"' + prop("APP_HASH") + '"'
         buildConfigField 'String', 'AYU_VERSION', '"' + new Date().format("yyyyMMdd") + '"'
 
-        // Google Console: https://console.cloud.google.com/google/maps-apis/credentials
-        resValue 'string', 'MAPS_V2_API', localProperties.getProperty("MAPS_V2_API")
+        // Optional: only needed if Google Maps tiles are used (we don't use them)
+        resValue 'string', 'MAPS_V2_API', prop("MAPS_V2_API")
 
         externalNativeBuild {
             cmake {
@@ -125,7 +135,7 @@ android {
     }
 
     lint {
-        checkReleaseBuilds false
+        checkReleaseBuilds true
         disable 'MissingTranslation', 'ExtraTranslation', 'BlockedPrivateApi'
     }
 
@@ -139,9 +149,9 @@ android {
     signingConfigs {
         release {
             storeFile file("config/extera.jks")
-            storePassword localProperties.getProperty("SIGNING_KEY_STORE_PASSWORD")
-            keyAlias localProperties.getProperty("SIGNING_KEY_ALIAS")
-            keyPassword localProperties.getProperty("SIGNING_KEY_PASSWORD")
+            storePassword prop("SIGNING_KEY_STORE_PASSWORD")
+            keyAlias prop("SIGNING_KEY_ALIAS")
+            keyPassword prop("SIGNING_KEY_PASSWORD")
         }
     }
 

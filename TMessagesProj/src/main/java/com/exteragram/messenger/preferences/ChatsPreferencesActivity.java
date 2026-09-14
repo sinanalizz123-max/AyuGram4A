@@ -53,6 +53,7 @@ public class ChatsPreferencesActivity extends BasePreferencesActivity implements
     private ActionBarMenuItem resetItem;
     private StickerSizeCell stickerSizeCell;
     private DoubleTapCell doubleTapCell;
+    private ValueAnimator stickerSizeAnimator;
 
     private final CharSequence[] doubleTapActions = new CharSequence[]{
             LocaleController.getString("Disable", R.string.Disable),
@@ -206,13 +207,18 @@ public class ChatsPreferencesActivity extends BasePreferencesActivity implements
         resetItem.setTag(null);
         resetItem.setOnClickListener(v -> {
             AndroidUtilities.updateViewVisibilityAnimated(resetItem, false, 0.5f, true);
-            ValueAnimator animator = ValueAnimator.ofFloat(ExteraConfig.stickerSize, 14.0f);
-            animator.setDuration(200);
-            animator.addUpdateListener(valueAnimator -> {
+            if (stickerSizeAnimator != null) {
+                stickerSizeAnimator.cancel();
+            }
+            stickerSizeAnimator = ValueAnimator.ofFloat(ExteraConfig.stickerSize, 14.0f);
+            stickerSizeAnimator.setDuration(200);
+            stickerSizeAnimator.addUpdateListener(valueAnimator -> {
                 ExteraConfig.editor.putFloat("stickerSize", ExteraConfig.stickerSize = (Float) valueAnimator.getAnimatedValue()).apply();
-                stickerSizeCell.invalidate();
+                if (stickerSizeCell != null) {
+                    stickerSizeCell.invalidate();
+                }
             });
-            animator.start();
+            stickerSizeAnimator.start();
         });
 
         return fragmentView;
@@ -238,6 +244,10 @@ public class ChatsPreferencesActivity extends BasePreferencesActivity implements
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.emojiLoaded);
+        if (stickerSizeAnimator != null) {
+            stickerSizeAnimator.cancel();
+            stickerSizeAnimator = null;
+        }
     }
 
     @Override
@@ -324,7 +334,9 @@ public class ChatsPreferencesActivity extends BasePreferencesActivity implements
         if (position == hideStickerTimeRow) {
             ExteraConfig.editor.putBoolean("hideStickerTime", ExteraConfig.hideStickerTime ^= true).apply();
             ((TextCheckCell) view).setChecked(ExteraConfig.hideStickerTime);
-            stickerSizeCell.invalidate();
+            if (stickerSizeCell != null) {
+                stickerSizeCell.invalidate();
+            }
         } else if (position == unlimitedRecentStickersRow) {
             ExteraConfig.editor.putBoolean("unlimitedRecentStickers", ExteraConfig.unlimitedRecentStickers ^= true).apply();
             ((TextCheckCell) view).setChecked(ExteraConfig.unlimitedRecentStickers);
@@ -344,7 +356,8 @@ public class ChatsPreferencesActivity extends BasePreferencesActivity implements
             if (getParentActivity() == null) {
                 return;
             }
-            PopupUtils.showDialog(bottomButton, LocaleController.getString("BottomButton", R.string.BottomButton), ExteraConfig.bottomButton, getContext(), which -> {
+            int bottomSelected = ExteraConfig.bottomButton >= 0 && ExteraConfig.bottomButton < bottomButton.length ? ExteraConfig.bottomButton : 0;
+            PopupUtils.showDialog(bottomButton, LocaleController.getString("BottomButton", R.string.BottomButton), bottomSelected, getContext(), which -> {
                 ExteraConfig.editor.putInt("bottomButton", ExteraConfig.bottomButton = which).apply();
                 listAdapter.notifyItemChanged(bottomButtonRow, payload);
             });
@@ -364,18 +377,28 @@ public class ChatsPreferencesActivity extends BasePreferencesActivity implements
             if (getParentActivity() == null) {
                 return;
             }
-            PopupUtils.showDialog(videoMessagesCamera, LocaleController.getString("VideoMessagesCamera", R.string.VideoMessagesCamera), ExteraConfig.videoMessagesCamera, getContext(), which -> {
+            int cameraSelected = ExteraConfig.videoMessagesCamera >= 0 && ExteraConfig.videoMessagesCamera < videoMessagesCamera.length ? ExteraConfig.videoMessagesCamera : 0;
+            PopupUtils.showDialog(videoMessagesCamera, LocaleController.getString("VideoMessagesCamera", R.string.VideoMessagesCamera), cameraSelected, getContext(), which -> {
                 int old = ExteraConfig.videoMessagesCamera;
                 ExteraConfig.editor.putInt("videoMessagesCamera", ExteraConfig.videoMessagesCamera = which).apply();
                 if (old == which) {
                     return;
                 }
+                if (listAdapter == null) {
+                    updateRowsId();
+                    return;
+                }
                 if (old == 2 && ExteraConfig.videoMessagesCamera != 2) {
                     updateRowsId();
-                    listAdapter.notifyItemInserted(rememberLastUsedCameraRow);
+                    if (rememberLastUsedCameraRow != -1) {
+                        listAdapter.notifyItemInserted(rememberLastUsedCameraRow);
+                    }
                 } else if (old != 2 && ExteraConfig.videoMessagesCamera == 2) {
-                    listAdapter.notifyItemRemoved(rememberLastUsedCameraRow);
+                    int oldRow = rememberLastUsedCameraRow;
                     updateRowsId();
+                    if (oldRow != -1) {
+                        listAdapter.notifyItemRemoved(oldRow);
+                    }
                 }
                 listAdapter.notifyItemChanged(videoMessagesCameraRow, payload);
             });
@@ -396,7 +419,8 @@ public class ChatsPreferencesActivity extends BasePreferencesActivity implements
             if (getParentActivity() == null) {
                 return;
             }
-            PopupUtils.showDialog(doubleTapSeekDuration, LocaleController.getString("DoubleTapSeekDuration", R.string.DoubleTapSeekDuration), ExteraConfig.doubleTapSeekDuration, getContext(), which -> {
+            int seekSelected = ExteraConfig.doubleTapSeekDuration >= 0 && ExteraConfig.doubleTapSeekDuration < doubleTapSeekDuration.length ? ExteraConfig.doubleTapSeekDuration : 0;
+            PopupUtils.showDialog(doubleTapSeekDuration, LocaleController.getString("DoubleTapSeekDuration", R.string.DoubleTapSeekDuration), seekSelected, getContext(), which -> {
                 int old = ExteraConfig.doubleTapSeekDuration;
                 ExteraConfig.editor.putInt("doubleTapSeekDuration", ExteraConfig.doubleTapSeekDuration = which).apply();
                 if (old == which) {
@@ -414,32 +438,50 @@ public class ChatsPreferencesActivity extends BasePreferencesActivity implements
             if (getParentActivity() == null) {
                 return;
             }
-            PopupUtils.showDialog(doubleTapActions, doubleTapIcons, LocaleController.getString("DoubleTap", R.string.DoubleTap), position == doubleTapActionRow ? ExteraConfig.doubleTapAction : ExteraConfig.doubleTapActionOutOwner, getContext(), i -> {
+            PopupUtils.showDialog(doubleTapActions, doubleTapIcons, LocaleController.getString("DoubleTap", R.string.DoubleTap), position == doubleTapActionRow ? (ExteraConfig.doubleTapAction >= 0 && ExteraConfig.doubleTapAction < doubleTapActions.length ? ExteraConfig.doubleTapAction : 0) : (ExteraConfig.doubleTapActionOutOwner >= 0 && ExteraConfig.doubleTapActionOutOwner < doubleTapActions.length ? ExteraConfig.doubleTapActionOutOwner : 0), getContext(), i -> {
                 if (position == doubleTapActionOutOwnerRow) {
                     int old = ExteraConfig.doubleTapActionOutOwner;
                     if (old == i)
                         return;
-                    doubleTapCell.updateIcons(2, true);
+                    if (doubleTapCell != null) {
+                        doubleTapCell.updateIcons(2, true);
+                    }
                     ExteraConfig.editor.putInt("doubleTapActionOutOwner", ExteraConfig.doubleTapActionOutOwner = i).apply();
-                    if (old == 1 && ExteraConfig.doubleTapAction != 1) {
-                        listAdapter.notifyItemRemoved(doubleTapReactionRow);
+                    if (listAdapter == null) {
                         updateRowsId();
+                    } else if (old == 1 && ExteraConfig.doubleTapAction != 1) {
+                        int oldRow = doubleTapReactionRow;
+                        updateRowsId();
+                        if (oldRow != -1) {
+                            listAdapter.notifyItemRemoved(oldRow);
+                        }
                     } else if (i == 1 && ExteraConfig.doubleTapAction != 1) {
                         updateRowsId();
-                        listAdapter.notifyItemInserted(doubleTapReactionRow);
+                        if (doubleTapReactionRow != -1) {
+                            listAdapter.notifyItemInserted(doubleTapReactionRow);
+                        }
                     }
                     listAdapter.notifyItemChanged(doubleTapActionOutOwnerRow, payload);
                 } else {
                     int old = ExteraConfig.doubleTapAction;
                     if (old == i) return;
-                    doubleTapCell.updateIcons(1, true);
+                    if (doubleTapCell != null) {
+                        doubleTapCell.updateIcons(1, true);
+                    }
                     ExteraConfig.editor.putInt("doubleTapAction", ExteraConfig.doubleTapAction = i).apply();
-                    if (old == 1 && ExteraConfig.doubleTapActionOutOwner != 1) {
-                        listAdapter.notifyItemRemoved(doubleTapReactionRow);
+                    if (listAdapter == null) {
                         updateRowsId();
+                    } else if (old == 1 && ExteraConfig.doubleTapActionOutOwner != 1) {
+                        int oldRow = doubleTapReactionRow;
+                        updateRowsId();
+                        if (oldRow != -1) {
+                            listAdapter.notifyItemRemoved(oldRow);
+                        }
                     } else if (i == 1 && ExteraConfig.doubleTapActionOutOwner != 1) {
                         updateRowsId();
-                        listAdapter.notifyItemInserted(doubleTapReactionRow);
+                        if (doubleTapReactionRow != -1) {
+                            listAdapter.notifyItemInserted(doubleTapReactionRow);
+                        }
                     }
                     listAdapter.notifyItemChanged(doubleTapActionOutOwnerRow);
                     listAdapter.notifyItemChanged(doubleTapActionRow, payload);
@@ -585,7 +627,9 @@ public class ChatsPreferencesActivity extends BasePreferencesActivity implements
                         @Override
                         protected void updateStickerPreview() {
                             parentLayout.rebuildAllFragmentViews(false, false);
-                            stickerSizeCell.invalidate();
+                            if (stickerSizeCell != null) {
+                                stickerSizeCell.invalidate();
+                            }
                         }
                     };
                     stickerShapeCell.setLayoutParams(new RecyclerView.LayoutParams(RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT));
@@ -668,15 +712,20 @@ public class ChatsPreferencesActivity extends BasePreferencesActivity implements
                 case 7:
                     TextSettingsCell textSettingsCell = (TextSettingsCell) holder.itemView;
                     if (position == doubleTapActionOutOwnerRow) {
-                        textSettingsCell.setTextAndValue(LocaleController.getString("DoubleTapOutgoing", R.string.DoubleTapOutgoing), doubleTapActions[ExteraConfig.doubleTapActionOutOwner], payload, doubleTapReactionRow != -1);
+                        int idx = ExteraConfig.doubleTapActionOutOwner >= 0 && ExteraConfig.doubleTapActionOutOwner < doubleTapActions.length ? ExteraConfig.doubleTapActionOutOwner : 0;
+                        textSettingsCell.setTextAndValue(LocaleController.getString("DoubleTapOutgoing", R.string.DoubleTapOutgoing), doubleTapActions[idx], payload, doubleTapReactionRow != -1);
                     } else if (position == doubleTapActionRow) {
-                        textSettingsCell.setTextAndValue(LocaleController.getString("DoubleTapIncoming", R.string.DoubleTapIncoming), doubleTapActions[ExteraConfig.doubleTapAction], payload, true);
+                        int idx = ExteraConfig.doubleTapAction >= 0 && ExteraConfig.doubleTapAction < doubleTapActions.length ? ExteraConfig.doubleTapAction : 0;
+                        textSettingsCell.setTextAndValue(LocaleController.getString("DoubleTapIncoming", R.string.DoubleTapIncoming), doubleTapActions[idx], payload, true);
                     } else if (position == bottomButtonRow) {
-                        textSettingsCell.setTextAndValue(LocaleController.getString("BottomButton", R.string.BottomButton), LocaleUtils.capitalize((String) bottomButton[ExteraConfig.bottomButton]), payload, true);
+                        int idx = ExteraConfig.bottomButton >= 0 && ExteraConfig.bottomButton < bottomButton.length ? ExteraConfig.bottomButton : 0;
+                        textSettingsCell.setTextAndValue(LocaleController.getString("BottomButton", R.string.BottomButton), LocaleUtils.capitalize((String) bottomButton[idx]), payload, true);
                     } else if (position == videoMessagesCameraRow) {
-                        textSettingsCell.setTextAndValue(LocaleController.getString("VideoMessagesCamera", R.string.VideoMessagesCamera), videoMessagesCamera[ExteraConfig.videoMessagesCamera], payload, true);
+                        int idx = ExteraConfig.videoMessagesCamera >= 0 && ExteraConfig.videoMessagesCamera < videoMessagesCamera.length ? ExteraConfig.videoMessagesCamera : 0;
+                        textSettingsCell.setTextAndValue(LocaleController.getString("VideoMessagesCamera", R.string.VideoMessagesCamera), videoMessagesCamera[idx], payload, true);
                     } else if (position == doubleTapSeekDurationRow) {
-                        textSettingsCell.setTextAndValue(LocaleController.getString("DoubleTapSeekDuration", R.string.DoubleTapSeekDuration), doubleTapSeekDuration[ExteraConfig.doubleTapSeekDuration], payload, true);
+                        int idx = ExteraConfig.doubleTapSeekDuration >= 0 && ExteraConfig.doubleTapSeekDuration < doubleTapSeekDuration.length ? ExteraConfig.doubleTapSeekDuration : 0;
+                        textSettingsCell.setTextAndValue(LocaleController.getString("DoubleTapSeekDuration", R.string.DoubleTapSeekDuration), doubleTapSeekDuration[idx], payload, true);
                     }
                     break;
                 case 8:

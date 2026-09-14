@@ -1,5 +1,7 @@
 package org.telegram.messenger;
 
+import com.exteragram.messenger.utils.AyuDownloadEngine;
+
 import java.util.ArrayList;
 
 public class FileLoaderPriorityQueue {
@@ -60,6 +62,9 @@ public class FileLoaderPriorityQueue {
         int lastPriority = 0;
         boolean pauseAllNextOperations = false;
         int max = type == TYPE_LARGE ? MessagesController.getInstance(currentAccount).largeQueueMaxActiveOperations : MessagesController.getInstance(currentAccount).smallQueueMaxActiveOperations;
+        if (AyuDownloadEngine.isEnabled()) {
+            max = type == TYPE_LARGE ? AyuDownloadEngine.getLargeQueueMax(max) : AyuDownloadEngine.getSmallQueueMax(max);
+        }
         for (int i = 0; i < allOperations.size(); i++) {
             FileLoadOperation operation = allOperations.get(i);
             if (i > 0 && !pauseAllNextOperations) {

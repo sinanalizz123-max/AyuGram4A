@@ -147,7 +147,11 @@ public class ExteraConfig {
     public static SharedPreferences.Editor editor;
 
     static {
-        loadConfig();
+        try {
+            loadConfig();
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
     }
 
     public static void loadConfig() {
@@ -155,9 +159,15 @@ public class ExteraConfig {
             if (configLoaded) {
                 return;
             }
-
-            preferences = ApplicationLoader.applicationContext.getSharedPreferences("exteraconfig", Activity.MODE_PRIVATE);
-            editor = preferences.edit();
+            try {
+                if (ApplicationLoader.applicationContext == null) {
+                    return;
+                }
+                preferences = ApplicationLoader.applicationContext.getSharedPreferences("exteraconfig", Activity.MODE_PRIVATE);
+                if (preferences == null) {
+                    return;
+                }
+                editor = preferences.edit();
 
             // General
             cameraType = preferences.getInt("cameraType", CameraXUtils.isCameraXSupported() ? 1 : 0);
@@ -258,21 +268,55 @@ public class ExteraConfig {
 
             // Other
             channelToSave = preferences.getLong("channelToSave", 0);
-            targetLanguage = preferences.getString("targetLanguage", (String) supportedLanguages[8]);
+            try {
+                targetLanguage = preferences.getString("targetLanguage", (String) supportedLanguages[8]);
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+            if (targetLanguage == null) {
+                targetLanguage = (String) supportedLanguages[8];
+            }
             voiceHintShowcases = preferences.getInt("voiceHintShowcases", 0);
             useGoogleCrashlytics = preferences.getBoolean("useGoogleCrashlytics", BuildVars.isBetaApp());
             useGoogleAnalytics = preferences.getBoolean("useGoogleAnalytics", BuildVars.isBetaApp());
 
             configLoaded = true;
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
         }
     }
 
-    public static boolean isExtera(@NonNull TLRPC.Chat chat) {
-        return Arrays.stream(OFFICIAL_CHANNELS).anyMatch(id -> id == chat.id) || Arrays.stream(AyuConstants.OFFICIAL_CHANNELS).anyMatch(id -> id == chat.id);
+    public static boolean isExtera(TLRPC.Chat chat) {
+        if (chat == null) {
+            return false;
+        }
+        try {
+            if (Arrays.stream(OFFICIAL_CHANNELS).anyMatch(id -> id == chat.id)) {
+                return true;
+            }
+            long[] official = AyuConstants.OFFICIAL_CHANNELS;
+            return official != null && Arrays.stream(official).anyMatch(id -> id == chat.id);
+        } catch (Exception e) {
+            FileLog.e(e);
+            return false;
+        }
     }
 
-    public static boolean isExteraDev(@NonNull TLRPC.User user) {
-        return Arrays.stream(DEVS).anyMatch(id -> id == user.id) || Arrays.stream(AyuConstants.DEVS).anyMatch(id -> id == user.id);
+    public static boolean isExteraDev(TLRPC.User user) {
+        if (user == null) {
+            return false;
+        }
+        try {
+            if (Arrays.stream(DEVS).anyMatch(id -> id == user.id)) {
+                return true;
+            }
+            long[] devs = AyuConstants.DEVS;
+            return devs != null && Arrays.stream(devs).anyMatch(id -> id == user.id);
+        } catch (Exception e) {
+            FileLog.e(e);
+            return false;
+        }
     }
 
     public static int getAvatarCorners(float size) {
@@ -286,61 +330,119 @@ public class ExteraConfig {
         return (int) (avatarCorners * (size / 56.0f) * (toPx ? 1 : AndroidUtilities.density));
     }
 
+    private static void putBoolean(String key, boolean value) {
+        try {
+            if (preferences == null) {
+                return;
+            }
+            preferences.edit().putBoolean(key, value).apply();
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+    }
+
+    private static void putLong(String key, long value) {
+        try {
+            if (preferences == null) {
+                return;
+            }
+            preferences.edit().putLong(key, value).apply();
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
+    }
+
     public static void toggleDrawerElements(int id) {
         switch (id) {
             case 1:
-                editor.putBoolean("newGroup", newGroup ^= true).apply();
+                putBoolean("newGroup", newGroup ^= true);
                 break;
             case 2:
-                editor.putBoolean("newSecretChat", newSecretChat ^= true).apply();
+                putBoolean("newSecretChat", newSecretChat ^= true);
                 break;
             case 3:
-                editor.putBoolean("newChannel", newChannel ^= true).apply();
+                putBoolean("newChannel", newChannel ^= true);
                 break;
             case 4:
-                editor.putBoolean("contacts", contacts ^= true).apply();
+                putBoolean("contacts", contacts ^= true);
                 break;
             case 5:
-                editor.putBoolean("calls", calls ^= true).apply();
+                putBoolean("calls", calls ^= true);
                 break;
             case 6:
-                editor.putBoolean("peopleNearby", peopleNearby ^= true).apply();
+                putBoolean("peopleNearby", peopleNearby ^= true);
                 break;
             case 7:
-                editor.putBoolean("archivedChats", archivedChats ^= true).apply();
+                putBoolean("archivedChats", archivedChats ^= true);
                 break;
             case 8:
-                editor.putBoolean("savedMessages", savedMessages ^= true).apply();
+                putBoolean("savedMessages", savedMessages ^= true);
                 break;
             case 9:
-                editor.putBoolean("scanQr", scanQr ^= true).apply();
+                putBoolean("scanQr", scanQr ^= true);
                 break;
             case 10:
-                editor.putBoolean("changeStatus", changeStatus ^= true).apply();
+                putBoolean("changeStatus", changeStatus ^= true);
                 break;
         }
-        NotificationCenter.getInstance(UserConfig.selectedAccount).postNotificationName(NotificationCenter.mainUserInfoChanged);
+        try {
+            NotificationCenter.getInstance(UserConfig.selectedAccount).postNotificationName(NotificationCenter.mainUserInfoChanged);
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
     }
 
     public static void setChannelToSave(long id) {
-        editor.putLong("channelToSave", channelToSave = id).apply();
+        channelToSave = id;
+        putLong("channelToSave", id);
     }
 
     public static void toggleLogging() {
-        ApplicationLoader.applicationContext.getSharedPreferences("systemConfig", Activity.MODE_PRIVATE).edit().putBoolean("logsEnabled", BuildVars.LOGS_ENABLED ^= true).apply();
-        if (!BuildVars.LOGS_ENABLED) FileLog.cleanupLogs();
+        try {
+            if (ApplicationLoader.applicationContext == null) {
+                return;
+            }
+            ApplicationLoader.applicationContext.getSharedPreferences("systemConfig", Activity.MODE_PRIVATE).edit().putBoolean("logsEnabled", BuildVars.LOGS_ENABLED ^= true).apply();
+            if (!BuildVars.LOGS_ENABLED) FileLog.cleanupLogs();
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
     }
 
     public static boolean getLogging() {
-        return ApplicationLoader.applicationContext.getSharedPreferences("systemConfig", Activity.MODE_PRIVATE).getBoolean("logsEnabled", false); //BuildVars.DEBUG_VERSION);
+        try {
+            if (ApplicationLoader.applicationContext == null) {
+                return false;
+            }
+            return ApplicationLoader.applicationContext.getSharedPreferences("systemConfig", Activity.MODE_PRIVATE).getBoolean("logsEnabled", false); //BuildVars.DEBUG_VERSION);
+        } catch (Exception e) {
+            FileLog.e(e);
+            return false;
+        }
     }
 
     public static String getCurrentLangName() {
-        return targetLanguage.substring(0, targetLanguage.indexOf("(") - 1);
+        try {
+            if (targetLanguage == null || !targetLanguage.contains("(")) {
+                return targetLanguage != null ? targetLanguage : "English";
+            }
+            return targetLanguage.substring(0, targetLanguage.indexOf("(") - 1);
+        } catch (Exception e) {
+            FileLog.e(e);
+            return targetLanguage != null ? targetLanguage : "English";
+        }
     }
 
     public static String getCurrentLangCode() {
-        return targetLanguage.substring(targetLanguage.indexOf("(") + 1, targetLanguage.indexOf(")"));
+        try {
+            if (targetLanguage == null || !targetLanguage.contains("(") || !targetLanguage.contains(")")) {
+                return "EN";
+            }
+            return targetLanguage.substring(targetLanguage.indexOf("(") + 1, targetLanguage.indexOf(")"));
+        } catch (Exception e) {
+            FileLog.e(e);
+            return "EN";
+        }
     }
 
     public static BaseIconSet getIconPack() {
@@ -371,8 +473,18 @@ public class ExteraConfig {
     }
 
     public static void clearPreferences() {
-        configLoaded = false;
-        ExteraConfig.editor.clear().apply();
-        ExteraConfig.loadConfig();
+        try {
+            configLoaded = false;
+            if (preferences != null) {
+                try {
+                    preferences.edit().clear().apply();
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+            }
+            ExteraConfig.loadConfig();
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
     }
 }

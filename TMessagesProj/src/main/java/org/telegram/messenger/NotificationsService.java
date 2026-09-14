@@ -24,8 +24,6 @@ import com.google.android.exoplayer2.util.Log;
 import com.radolyn.ayugram.AyuConfig;
 import org.telegram.ui.LaunchActivity;
 
-import java.util.Random;
-
 public class NotificationsService extends Service {
     private static final String[] notifications = new String[]{
             "⊂(◉‿◉)つ",
@@ -70,7 +68,7 @@ public class NotificationsService extends Service {
             NotificationManagerCompat notificationManager = NotificationManagerCompat.from(this);
             notificationManager.createNotificationChannel(channel);
 
-            var cuteText = notifications[new Random().nextInt(notifications.length)];
+            var cuteText = notifications[Utilities.random.nextInt(notifications.length)];
 
             Notification notification;
 

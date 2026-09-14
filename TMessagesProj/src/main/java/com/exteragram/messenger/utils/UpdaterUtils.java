@@ -56,29 +56,45 @@ public class UpdaterUtils {
 
     public static final DispatchQueue otaQueue = new DispatchQueue("otaQueue");
 
-    private static String uri = "https://api.github.com/repos/" + AyuConstants.APP_GITHUB + "/releases/latest";
-    private static String downloadURL = null;
-    public static String version, changelog, size, uploadDate;
-    public static File otaPath, versionPath, apkFile;
+    private static final String uri = "https://api.github.com/repos/" + AyuConstants.APP_GITHUB + "/releases/latest";
+    private static volatile String downloadURL = null;
+    public static volatile String version, changelog, size, uploadDate;
+    public static volatile File otaPath, versionPath, apkFile;
 
-    private static long id = 1L;
+    private static volatile long id = 1L;
     private static final long updateCheckInterval = 3600000L; // 1 hour
 
-    private static boolean updateDownloaded;
-    private static boolean checkingForUpdates;
+    private static volatile boolean updateDownloaded;
+    private static volatile boolean checkingForUpdates;
 
     public static void checkDirs() {
-        otaPath = new File(ApplicationLoader.applicationContext.getExternalFilesDir(null), "ota");
-        if (version != null) {
-            versionPath = new File(otaPath, version);
-            apkFile = new File(versionPath, "update.apk");
-            try {
-                if (!versionPath.exists())
-                    versionPath.mkdirs();
-            } catch (Exception e) {
-                FileLog.e(e);
+        try {
+            if (ApplicationLoader.applicationContext == null) {
+                return;
             }
-            updateDownloaded = apkFile.exists();
+            var dir = ApplicationLoader.applicationContext.getExternalFilesDir(null);
+            if (dir == null) {
+                return;
+            }
+            otaPath = new File(dir, "ota");
+            if (version != null) {
+                versionPath = new File(otaPath, version);
+                apkFile = new File(versionPath, "update.apk");
+                try {
+                    if (!versionPath.exists())
+                        versionPath.mkdirs();
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+                try {
+                    updateDownloaded = apkFile.exists();
+                } catch (Exception e) {
+                    FileLog.e(e);
+                    updateDownloaded = false;
+                }
+            }
+        } catch (Exception e) {
+            FileLog.e(e);
         }
     }
 
@@ -101,12 +117,16 @@ public class UpdaterUtils {
 
         checkingForUpdates = true;
         otaQueue.postRunnable(() -> {
-            ExteraConfig.editor.putLong("lastUpdateCheckTime", ExteraConfig.lastUpdateCheckTime = System.currentTimeMillis()).apply();
+            HttpURLConnection connection = null;
             try {
+                ExteraConfig.editor.putLong("lastUpdateCheckTime", ExteraConfig.lastUpdateCheckTime = System.currentTimeMillis()).apply();
+                String requestUri = uri;
                 if (BuildVars.isBetaApp())
-                    uri = uri.replace("/" + AyuConstants.APP_NAME + "/", "/" + AyuConstants.APP_NAME + "-Beta/");
-                var connection = (HttpURLConnection) new URI(uri).toURL().openConnection();
+                    requestUri = requestUri.replace("/" + AyuConstants.APP_NAME + "/", "/" + AyuConstants.APP_NAME + "-Beta/");
+                connection = (HttpURLConnection) new URI(requestUri).toURL().openConnection();
                 connection.setRequestMethod("GET");
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(15000);
                 connection.setRequestProperty("User-Agent", TranslatorUtils.formatUserAgent());
                 connection.setRequestProperty("Content-Type", "application/json");
 
@@ -120,8 +140,11 @@ public class UpdaterUtils {
                 var obj = new JSONObject(textBuilder.toString());
                 var arr = obj.getJSONArray("assets");
 
-                if (arr.length() == 0)
+                if (arr.length() == 0) {
+                    if (onUpdateNotFound != null)
+                        AndroidUtilities.runOnUIThread(onUpdateNotFound::run);
                     return;
+                }
 
                 String link, installedApkType = getInstalledApkType();
                 String[] supportedTypes = {"arm64-v8a", "armeabi-v7a", "x86", "x86_64", "universal"};
@@ -156,66 +179,125 @@ public class UpdaterUtils {
                 }
             } catch (Exception e) {
                 FileLog.e(e);
+            } finally {
+                if (connection != null) {
+                    try {
+                        connection.disconnect();
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                    }
+                }
+                checkingForUpdates = false;
             }
-            checkingForUpdates = false;
         }, 200);
     }
 
     public static void downloadApk(Context context, String link, String title) {
-        if (context != null && !updateDownloaded) {
-            var request = new DownloadManager.Request(Uri.parse(link));
+        if (context == null) {
+            return;
+        }
+        if (!updateDownloaded) {
+            if (link == null) {
+                return;
+            }
+            try {
+                var request = new DownloadManager.Request(Uri.parse(link));
 
-            request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_MOBILE | DownloadManager.Request.NETWORK_WIFI);
-            request.setTitle(title);
-            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            request.setDestinationInExternalFilesDir(context, "ota/" + version, "update.apk");
+                request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_MOBILE | DownloadManager.Request.NETWORK_WIFI);
+                request.setTitle(title);
+                request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                request.setDestinationInExternalFilesDir(context, "ota/" + version, "update.apk");
 
-            var manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
-            id = manager.enqueue(request);
+                var manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
+                if (manager == null) {
+                    return;
+                }
+                id = manager.enqueue(request);
 
-            var downloadBroadcastReceiver = new DownloadReceiver();
-            var intentFilter = new IntentFilter();
-            intentFilter.addAction("android.intent.action.DOWNLOAD_COMPLETE");
-            intentFilter.addAction("android.intent.action.DOWNLOAD_NOTIFICATION_CLICKED");
-            context.registerReceiver(downloadBroadcastReceiver, intentFilter);
+                var downloadBroadcastReceiver = new DownloadReceiver();
+                var intentFilter = new IntentFilter();
+                intentFilter.addAction(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+                intentFilter.addAction(DownloadManager.ACTION_NOTIFICATION_CLICKED);
+                if (Build.VERSION.SDK_INT >= 33) {
+                    context.registerReceiver(downloadBroadcastReceiver, intentFilter, Context.RECEIVER_EXPORTED);
+                } else {
+                    context.registerReceiver(downloadBroadcastReceiver, intentFilter);
+                }
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
         } else {
-            installApk(context, apkFile.getAbsolutePath());
+            if (apkFile != null) {
+                installApk(context, apkFile.getAbsolutePath());
+            }
         }
     }
 
     public static void installApk(Context context, String path) {
-        var file = new File(path);
-        if (!file.exists())
-            return;
-        var install = new Intent(Intent.ACTION_VIEW);
-        Uri fileUri;
-        if (Build.VERSION.SDK_INT >= 24) {
-            fileUri = FileProvider.getUriForFile(context, ApplicationLoader.getApplicationId() + ".provider", file);
-        } else {
-            fileUri = Uri.fromFile(file);
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !ApplicationLoader.applicationContext.getPackageManager().canRequestPackageInstalls()) {
-            AlertsCreator.createApkRestrictedDialog(context, null).show();
+        if (context == null || path == null) {
             return;
         }
-        if (fileUri != null) {
-            install.setDataAndType(fileUri, "application/vnd.android.package-archive");
-            install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-            if (install.resolveActivity(context.getPackageManager()) != null) {
-                context.startActivity(install);
+        try {
+            var file = new File(path);
+            if (!file.exists())
+                return;
+            var install = new Intent(Intent.ACTION_VIEW);
+            Uri fileUri;
+            if (Build.VERSION.SDK_INT >= 24) {
+                try {
+                    fileUri = FileProvider.getUriForFile(context, ApplicationLoader.getApplicationId() + ".provider", file);
+                } catch (Exception e) {
+                    FileLog.e(e);
+                    return;
+                }
+            } else {
+                fileUri = Uri.fromFile(file);
             }
+            if (ApplicationLoader.applicationContext != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !ApplicationLoader.applicationContext.getPackageManager().canRequestPackageInstalls()) {
+                try {
+                    AlertsCreator.createApkRestrictedDialog(context, null).show();
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+                return;
+            }
+            if (fileUri != null) {
+                install.setDataAndType(fileUri, "application/vnd.android.package-archive");
+                install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    if (install.resolveActivity(context.getPackageManager()) != null) {
+                        context.startActivity(install);
+                    }
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+            }
+        } catch (Exception e) {
+            FileLog.e(e);
         }
     }
 
     public static String getOtaDirSize() {
         checkDirs();
-        return AndroidUtilities.formatFileSize(Utilities.getDirSize(otaPath.getAbsolutePath(), 5, true), true);
+        if (otaPath == null) {
+            return AndroidUtilities.formatFileSize(0, true);
+        }
+        try {
+            return AndroidUtilities.formatFileSize(Utilities.getDirSize(otaPath.getAbsolutePath(), 5, true), true);
+        } catch (Exception e) {
+            FileLog.e(e);
+            return AndroidUtilities.formatFileSize(0, true);
+        }
     }
 
     public static String getInstalledApkType() {
         try {
+            if (ApplicationLoader.applicationContext == null) {
+                return Build.SUPPORTED_ABIS.length > 0 ? Build.SUPPORTED_ABIS[0] : "arm64-v8a";
+            }
             var info = ApplicationLoader.applicationContext.getPackageManager().getPackageInfo(ApplicationLoader.applicationContext.getPackageName(), 0);
-            switch (info.versionCode % 10) {
+            int mod = Math.floorMod(info.versionCode, 10);
+            switch (mod) {
                 case 1:
                 case 3:
                     return "armeabi-v7a";
@@ -233,34 +315,52 @@ public class UpdaterUtils {
                     return "universal";
             }
         } catch (Exception e) {
-            return Build.SUPPORTED_ABIS[0];
+            FileLog.e(e);
+            if (Build.SUPPORTED_ABIS != null && Build.SUPPORTED_ABIS.length > 0) {
+                return Build.SUPPORTED_ABIS[0];
+            }
+            return "arm64-v8a";
         }
         return null;
     }
 
     public static void cleanOtaDir() {
         checkDirs();
-        cleanFolder(otaPath);
+        if (otaPath != null) {
+            cleanFolder(otaPath);
+        }
     }
 
     public static void cleanFolder(File folder) {
-        if (folder.isDirectory()) {
-            File[] files = folder.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    cleanFolder(file);
+        if (folder == null || !folder.exists()) {
+            return;
+        }
+        try {
+            if (folder.isDirectory()) {
+                File[] files = folder.listFiles();
+                if (files != null) {
+                    for (File file : files) {
+                        cleanFolder(file);
+                    }
                 }
             }
+            folder.delete();
+        } catch (Exception e) {
+            FileLog.e(e);
         }
-        folder.delete();
     }
 
     public static long getMillisFromDate(String d, String format) {
+        if (d == null || format == null) {
+            return 1L;
+        }
         @SuppressLint("SimpleDateFormat")
         var sdf = new SimpleDateFormat(format);
         try {
             Date date = sdf.parse(d);
-            assert date != null;
+            if (date == null) {
+                return 1L;
+            }
             return date.getTime();
         } catch (Exception ignore) {
             return 1L;
@@ -268,6 +368,9 @@ public class UpdaterUtils {
     }
 
     public static SpannableStringBuilder replaceTags(CharSequence str) {
+        if (str == null) {
+            return new SpannableStringBuilder("");
+        }
         try {
             int start;
             int end;
@@ -310,30 +413,62 @@ public class UpdaterUtils {
     public static class DownloadReceiver extends BroadcastReceiver {
         @Override
         public void onReceive(Context context, Intent intent){
-            String action = intent.getAction();
-            if (DownloadManager.ACTION_DOWNLOAD_COMPLETE.equals(action)) {
-                long downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, 1L);
-                DownloadManager downloadManager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
-                DownloadManager.Query query = new DownloadManager.Query();
-                query.setFilterById(downloadId);
-                Cursor cursor = downloadManager.query(query);
-                if (cursor.moveToFirst()) {
-                    int columnIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
-                    int status = cursor.getInt(columnIndex);
-                    if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                        installApk(context, apkFile.getAbsolutePath());
-                        id = 1L;
-                        updateDownloaded = false;
-                    } else {
-                        // ignore for now
+            try {
+                if (context == null || intent == null) {
+                    return;
+                }
+                String action = intent.getAction();
+                if (DownloadManager.ACTION_DOWNLOAD_COMPLETE.equals(action)) {
+                    long downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, 1L);
+                    DownloadManager downloadManager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
+                    if (downloadManager == null) {
+                        return;
+                    }
+                    DownloadManager.Query query = new DownloadManager.Query();
+                    query.setFilterById(downloadId);
+                    Cursor cursor = null;
+                    try {
+                        cursor = downloadManager.query(query);
+                        if (cursor != null && cursor.moveToFirst()) {
+                            int columnIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
+                            if (columnIndex != -1) {
+                                int status = cursor.getInt(columnIndex);
+                                if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                                    if (apkFile != null) {
+                                        installApk(context, apkFile.getAbsolutePath());
+                                    }
+                                    id = 1L;
+                                    updateDownloaded = false;
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                    } finally {
+                        if (cursor != null) {
+                            try {
+                                cursor.close();
+                            } catch (Exception e) {
+                                FileLog.e(e);
+                            }
+                        }
+                    }
+                } else if (DownloadManager.ACTION_NOTIFICATION_CLICKED.equals(action)) {
+                    try {
+                        Intent viewDownloadIntent = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
+                        viewDownloadIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        context.startActivity(viewDownloadIntent);
+                    } catch (Exception e) {
+                        FileLog.e(e);
                     }
                 }
-                cursor.close();
-            } else if (DownloadManager.ACTION_NOTIFICATION_CLICKED.equals(action)) {
+            } catch (Exception e) {
+                FileLog.e(e);
+            } finally {
                 try {
-                    Intent viewDownloadIntent = new Intent(DownloadManager.ACTION_VIEW_DOWNLOADS);
-                    viewDownloadIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    context.startActivity(viewDownloadIntent);
+                    if (context != null) {
+                        context.unregisterReceiver(this);
+                    }
                 } catch (Exception e) {
                     FileLog.e(e);
                 }
@@ -354,25 +489,33 @@ public class UpdaterUtils {
 
         // todo: compare by version code, not version
         public boolean isNew() {
-            String[] current = BuildVars.BUILD_VERSION_STRING.split("\\.");
-            String[] latest = version.split("\\.");
+            if (version == null || BuildVars.BUILD_VERSION_STRING == null) {
+                return false;
+            }
+            try {
+                String[] current = BuildVars.BUILD_VERSION_STRING.split("\\.");
+                String[] latest = version.split("\\.");
 
-            int length = Math.max(current.length, latest.length);
-            for (int i = 0; i < length; i++) {
-                int v1 = i < current.length ? Utilities.parseInt(current[i]) : 0;
-                int v2 = i < latest.length ? Utilities.parseInt(latest[i]) : 0;
-                if (v1 < v2) {
-                    return true;
-                } else if (v1 > v2) {
-                    return false;
+                int length = Math.max(current.length, latest.length);
+                for (int i = 0; i < length; i++) {
+                    int v1 = i < current.length ? Utilities.parseInt(current[i]) : 0;
+                    int v2 = i < latest.length ? Utilities.parseInt(latest[i]) : 0;
+                    if (v1 < v2) {
+                        return true;
+                    } else if (v1 > v2) {
+                        return false;
+                    }
                 }
+            } catch (Exception e) {
+                FileLog.e(e);
+                return false;
             }
             return false;
         }
 
         // todo: force update
         public boolean isForce() {
-            return version.toLowerCase().contains("force");
+            return version != null && version.toLowerCase().contains("force");
         }
     }
 }

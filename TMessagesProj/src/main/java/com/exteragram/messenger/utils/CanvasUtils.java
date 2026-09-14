@@ -43,23 +43,55 @@ public class CanvasUtils {
     }
 
     public static CombinedDrawable createCircleDrawableWithIcon(Context context, int iconRes, int size) {
-        Drawable drawable = iconRes != 0 ? Objects.requireNonNull(ContextCompat.getDrawable(context, iconRes)).mutate() : null;
-        OvalShape ovalShape = new OvalShape();
-        ovalShape.resize(size, size);
-        ShapeDrawable defaultDrawable = new ShapeDrawable(ovalShape);
-        Paint paint = defaultDrawable.getPaint();
-        paint.setColor(0xffffffff);
-        CombinedDrawable combinedDrawable = new CombinedDrawable(defaultDrawable, drawable);
-        combinedDrawable.setCustomSize(size, size);
-        return combinedDrawable;
+        try {
+            Drawable drawable = null;
+            if (iconRes != 0 && context != null) {
+                try {
+                    drawable = ContextCompat.getDrawable(context, iconRes);
+                } catch (Exception e) {
+                    drawable = null;
+                }
+                if (drawable != null) {
+                    drawable = drawable.mutate();
+                }
+            }
+            OvalShape ovalShape = new OvalShape();
+            ovalShape.resize(size, size);
+            ShapeDrawable defaultDrawable = new ShapeDrawable(ovalShape);
+            Paint paint = defaultDrawable.getPaint();
+            paint.setColor(0xffffffff);
+            CombinedDrawable combinedDrawable = new CombinedDrawable(defaultDrawable, drawable);
+            combinedDrawable.setCustomSize(size, size);
+            return combinedDrawable;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public static CombinedDrawable createRoundRectDrawableWithIcon(int size, int rad, int iconRes) {
-        ShapeDrawable defaultDrawable = new ShapeDrawable(new RoundRectShape(new float[]{rad, rad, rad, rad, rad, rad, rad, rad}, null, null));
-        defaultDrawable.getPaint().setColor(0xffffffff);
-        Drawable drawable = ApplicationLoader.applicationContext.getResources().getDrawable(iconRes).mutate();
-        CombinedDrawable combinedDrawable = new CombinedDrawable(defaultDrawable, drawable);
-        combinedDrawable.setCustomSize(size, size);
-        return combinedDrawable;
+        try {
+            ShapeDrawable defaultDrawable = new ShapeDrawable(new RoundRectShape(new float[]{rad, rad, rad, rad, rad, rad, rad, rad}, null, null));
+            defaultDrawable.getPaint().setColor(0xffffffff);
+            Drawable drawable = null;
+            if (iconRes != 0 && ApplicationLoader.applicationContext != null) {
+                try {
+                    drawable = ApplicationLoader.applicationContext.getResources().getDrawable(iconRes);
+                } catch (Exception e) {
+                    drawable = null;
+                }
+                if (drawable != null) {
+                    try {
+                        drawable = drawable.mutate();
+                    } catch (Exception e) {
+                        drawable = null;
+                    }
+                }
+            }
+            CombinedDrawable combinedDrawable = new CombinedDrawable(defaultDrawable, drawable);
+            combinedDrawable.setCustomSize(size, size);
+            return combinedDrawable;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

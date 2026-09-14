@@ -8,9 +8,15 @@
 
 package org.telegram.messenger;
 
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.BatteryManager;
 import android.text.TextUtils;
 import android.util.SparseArray;
 
+import com.exteragram.messenger.ExteraConfig;
+import com.exteragram.messenger.utils.AyuDownloadEngine;
 import com.radolyn.ayugram.utils.AyuFileLocation;
 
 import org.telegram.tgnet.TLObject;
@@ -117,6 +123,122 @@ public class FileLoader extends BaseController {
         return fileLoaderQueue;
     }
 
+    public int getActiveDownloadCount() {
+        try {
+            int count = 0;
+            for (FileLoadOperation operation : loadOperationPaths.values()) {
+                if (operation != null && operation.wasStarted() && !operation.preFinished) {
+                    count++;
+                }
+            }
+            return count;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    public int getEffectivePerFileMax(int requestedMax, boolean highPriority) {
+        try {
+            int active = getActiveDownloadCount();
+            if (active <= 2 || requestedMax <= 1) {
+                return requestedMax;
+            }
+            int totalCap = TOTAL_DOWNLOAD_CONNECTIONS_CAP;
+            try {
+                if (AyuDownloadEngine.isEnabled()) {
+                    totalCap = Math.max(4, Math.min(AyuDownloadEngine.getCustomMaxTotalConnections(), 32));
+                }
+            } catch (Exception ignore) {
+            }
+            int effective = totalCap / active;
+            if (highPriority) {
+                effective += 1;
+            }
+            effective = Math.max(1, Math.min(requestedMax, effective));
+            if (BuildVars.DEBUG_VERSION && effective != requestedMax) {
+                FileLog.d("download adaptive: active=" + active + " requestedMax=" + requestedMax + " effectiveMax=" + effective + " highPriority=" + highPriority + " account=" + currentAccount);
+            }
+            return effective;
+        } catch (Exception e) {
+            return requestedMax;
+        }
+    }
+
+    public void notifyDegradeOnce(String reason) {
+        try {
+            long now = System.currentTimeMillis();
+            if (now - lastDegradeNotifyTime < DEGRADE_NOTIFY_COOLDOWN_MS) {
+                return;
+            }
+            lastDegradeNotifyTime = now;
+            final String message = reason == null ? "download_slow" : reason;
+            AndroidUtilities.runOnUIThread(() -> {
+                try {
+                    getNotificationCenter().postNotificationName(NotificationCenter.fileDownloadDegraded, message);
+                } catch (Exception ignore) {
+                }
+            });
+        } catch (Exception ignore) {
+        }
+    }
+
+    public void checkLowBatteryHint() {
+        try {
+            if (lowBatteryHintShown) {
+                return;
+            }
+            boolean maximum = ExteraConfig.downloadSpeedBoost == 2;
+            try {
+                if (AyuDownloadEngine.isEnabled() && AyuDownloadEngine.getMode() == AyuDownloadEngine.MODE_MAXIMUM) {
+                    maximum = true;
+                }
+            } catch (Exception ignore) {
+            }
+            if (!maximum) {
+                return;
+            }
+            boolean lowBattery = false;
+            try {
+                lowBattery = AyuDownloadEngine.isLowBattery();
+            } catch (Exception ignore) {
+            }
+            if (!lowBattery) {
+                try {
+                    Context context = ApplicationLoader.applicationContext;
+                    if (context != null) {
+                        BatteryManager batteryManager = (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
+                        if (batteryManager != null) {
+                            int level = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+                            Intent batteryStatus = context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+                            boolean charging = false;
+                            if (batteryStatus != null) {
+                                int status = batteryStatus.getIntExtra("status", -1);
+                                charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL;
+                            } else {
+                                charging = batteryManager.isCharging();
+                            }
+                            lowBattery = level >= 0 && level < 15 && !charging;
+                        }
+                    }
+                } catch (Exception ignore) {
+                }
+            }
+            if (lowBattery) {
+                lowBatteryHintShown = true;
+                AndroidUtilities.runOnUIThread(() -> {
+                    try {
+                        getNotificationCenter().postNotificationName(NotificationCenter.fileDownloadDegraded, "low_battery_hint");
+                    } catch (Exception ignore) {
+                    }
+                });
+                if (BuildVars.DEBUG_VERSION) {
+                    FileLog.d("download adaptive: Maximum mode with low battery, posted one-time hint; mode unchanged");
+                }
+            }
+        } catch (Exception ignore) {
+        }
+    }
+
 
     public interface FileLoaderDelegate {
         void fileUploadProgressChanged(FileUploadOperation operation, String location, long uploadedSize, long totalSize, boolean isEncrypted);
@@ -162,6 +284,17 @@ public class FileLoader extends BaseController {
     public final static int PRELOAD_CACHE_TYPE = 11;
 
     private volatile static DispatchQueue fileLoaderQueue = new DispatchQueue("fileUploadQueue");
+    // Background note: downloads run on fileLoaderQueue (dispatch) + Utilities.stageQueue (network
+    // callbacks and file I/O) + FileLoadOperation.filesQueue (final rename). These queues survive
+    // activity backgrounding, so in-progress downloads continue while the app process lives and
+    // progress keeps flowing via delegate.fileLoadProgressChanged ->
+    // NotificationCenter.fileLoadProgressChanged. No dedicated foreground Service is created for
+    // downloads here; process death still stops transfers, but the .temp/.pt resume state on disk
+    // allows a clean restart (see FileLoadOperation).
+    private static long lastDegradeNotifyTime;
+    private static final long DEGRADE_NOTIFY_COOLDOWN_MS = 60_000;
+    private static boolean lowBatteryHintShown;
+    private static final int TOTAL_DOWNLOAD_CONNECTIONS_CAP = 16;
     private final FilePathDatabase filePathDatabase;
 
     private final LinkedList<FileUploadOperation> uploadOperationQueue = new LinkedList<>();
@@ -665,6 +798,7 @@ public class FileLoader extends BaseController {
         if (fileName == null || fileName.contains("" + Integer.MIN_VALUE)) {
             return null;
         }
+        checkLowBatteryHint();
         if (cacheType != 10 && !TextUtils.isEmpty(fileName) && !fileName.contains("" + Integer.MIN_VALUE)) {
             loadOperationPathsUI.put(fileName, new LoadOperationUIObject());
         }

@@ -25,7 +25,10 @@ public class ExteraResources extends Resources {
     private BaseIconSet current = ExteraConfig.getIconPack();
 
     public void getActiveIconPack() {
-        current = ExteraConfig.getIconPack();
+        try {
+            current = ExteraConfig.getIconPack();
+        } catch (Exception ignored) {
+        }
     }
 
     public ExteraResources(@NonNull Resources resources) {
@@ -36,7 +39,30 @@ public class ExteraResources extends Resources {
     @Nullable
     @Override
     public Drawable getDrawableForDensity(int id, int density, @Nullable Theme theme) {
-        return mResources.getDrawableForDensity(current.getIcon(id), density, theme);
+        try {
+            if (mResources == null) {
+                return super.getDrawableForDensity(id, density, theme);
+            }
+            int iconId = id;
+            try {
+                if (current != null) {
+                    iconId = current.getIcon(id);
+                }
+            } catch (Exception e) {
+                iconId = id;
+            }
+            try {
+                return mResources.getDrawableForDensity(iconId, density, theme);
+            } catch (Resources.NotFoundException e) {
+                return super.getDrawableForDensity(id, density, theme);
+            }
+        } catch (Exception e) {
+            try {
+                return super.getDrawableForDensity(id, density, theme);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
     }
 
 }

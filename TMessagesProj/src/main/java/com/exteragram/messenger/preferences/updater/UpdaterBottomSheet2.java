@@ -212,10 +212,16 @@ public class UpdaterBottomSheet2 extends BottomSheet {
             }
         });
         listView.setOnItemClickListener((view, position) -> {
+            if (isDismissed()) {
+                return;
+            }
             if (view instanceof TextCell) {
                 TextCell cell = (TextCell) view;
                 cell.setEnabled(true);
                 if (position == versionRow || position == buildTypeRow || position == sizeRow) {
+                    if (cell.getTextView() == null || cell.getValueTextView() == null) {
+                        return;
+                    }
                     copyText(cell.getTextView().getText() + ": " + cell.getValueTextView().getText());
                 } else if (position == checkOnLaunchRow) {
                     ExteraConfig.editor.putBoolean("checkUpdatesOnLaunch", ExteraConfig.checkUpdatesOnLaunch ^= true).apply();
@@ -228,16 +234,32 @@ public class UpdaterBottomSheet2 extends BottomSheet {
                         UpdaterUtils.cleanOtaDir();
                     }
                 } else if (position == changelogRow) {
-                    copyText(cell.getTextView().getText() + "\n" + args[1]);
+                    if (cell.getTextView() == null) {
+                        return;
+                    }
+                    String changelog = args != null && args.length > 1 && args[1] != null ? args[1] : "";
+                    copyText(cell.getTextView().getText() + "\n" + changelog);
                 }
             } else if (position == changelogTextRow) {
+                if (args == null || args.length <= 1 || args[1] == null) {
+                    return;
+                }
                 TextInfoPrivacyCell cell = (TextInfoPrivacyCell) view;
-                TranslatorUtils.translate(args[1], LocaleController.getInstance().getCurrentLocale().getLanguage(), translated -> {
+                String source = args[1];
+                TranslatorUtils.translate(source, LocaleController.getInstance().getCurrentLocale().getLanguage(), translated -> {
+                    if (isDismissed() || cell.getParent() == null) {
+                        return;
+                    }
                     translatedC = translated;
-                    cell.setText(UpdaterUtils.replaceTags(isTranslated ? args[1] : translatedC));
+                    cell.setText(UpdaterUtils.replaceTags(isTranslated ? source : translatedC));
                     adapter.notifyItemChanged(changelogTextRow);
                     isTranslated ^= true;
-                }, () -> BulletinFactory.of(getContainer(), null).createErrorBulletin(LocaleController.getString("TranslationFailedAlert1", R.string.TranslationFailedAlert1)).show());
+                }, () -> {
+                    if (isDismissed()) {
+                        return;
+                    }
+                    BulletinFactory.of(getContainer(), null).createErrorBulletin(LocaleController.getString("TranslationFailedAlert1", R.string.TranslationFailedAlert1)).show();
+                });
             }
 
         });
@@ -266,14 +288,26 @@ public class UpdaterBottomSheet2 extends BottomSheet {
         checkUpdates.setIgnoreRTL(!LocaleController.isRTL);
         checkUpdates.adaptWidth = false;
         checkUpdates.setText(LocaleController.getString("CheckForUpdates", R.string.CheckForUpdates));
-        checkUpdates.setOnClickListener(v -> {
+        Runnable checkClick = () -> {
+            if (isDismissed() || fragment == null) {
+                return;
+            }
             checkUpdates.setText(LocaleController.getString("CheckingForUpdates", R.string.CheckingForUpdates));
             UpdaterUtils.checkUpdates(fragment, true, () -> {
+                if (isDismissed() || headerCell == null || headerCell.getTimeView() == null) {
+                    return;
+                }
                 headerCell.getTimeView().setText(LocaleController.getString("LastCheck", R.string.LastCheck) + ": " + LocaleController.formatDateTime(ExteraConfig.lastUpdateCheckTime / 1000));
                 checkUpdates.setText(LocaleController.getString("CheckForUpdates", R.string.CheckForUpdates));
                 BulletinFactory.of(getContainer(), null).createErrorBulletin(LocaleController.getString("NoUpdates", R.string.NoUpdates)).show();
-            }, this::dismiss);
-        });
+            }, () -> {
+                if (!isDismissed()) {
+                    dismiss();
+                }
+            });
+        };
+        checkUpdates.setOnClickListener(v -> checkClick.run());
+        checkUpdatesBackground.setOnClickListener(v -> checkClick.run());
         checkUpdatesBackground.addView(checkUpdates, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER));
 
         adapter.notifyDataSetChanged();
@@ -365,7 +399,8 @@ public class UpdaterBottomSheet2 extends BottomSheet {
                     } else if (position == clearCacheRow) {
                         cell.setTextAndIcon(LocaleController.getString("ClearUpdatesCache", R.string.ClearUpdatesCache), R.drawable.msg_clear, false);
                     } else if (position == sizeRow) {
-                        cell.setTextAndValueAndIcon(LocaleController.getString("UpdateSize", R.string.UpdateSize), args[2], R.drawable.msg_sendfile, true);
+                        String size = args != null && args.length > 2 && args[2] != null ? args[2] : "";
+                        cell.setTextAndValueAndIcon(LocaleController.getString("UpdateSize", R.string.UpdateSize), size, R.drawable.msg_sendfile, true);
                     } else if (position == changelogRow) {
                         cell.setTextAndIcon(LocaleController.getString("Changelog", R.string.Changelog), R.drawable.msg_log, false);
                     }
@@ -375,7 +410,8 @@ public class UpdaterBottomSheet2 extends BottomSheet {
                     TextInfoPrivacyCell cell = (TextInfoPrivacyCell) holder.itemView;
                     if (position == changelogTextRow) {
                         cell.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
-                        cell.setText(UpdaterUtils.replaceTags(args[1]));
+                        String changelog = args != null && args.length > 1 && args[1] != null ? args[1] : "";
+                        cell.setText(UpdaterUtils.replaceTags(changelog));
                     }
                     break;
                 }
@@ -422,7 +458,8 @@ public class UpdaterBottomSheet2 extends BottomSheet {
             timeView.setTextSize(AndroidUtilities.dp(13));
             timeView.setTypeface(AndroidUtilities.getTypeface(AndroidUtilities.TYPEFACE_ROBOTO_REGULAR));
             timeView.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
-            timeView.setText(available ? args[4] : LocaleController.getString("LastCheck", R.string.LastCheck) + ": " + LocaleController.formatDateTime(ExteraConfig.lastUpdateCheckTime / 1000));
+            String uploadDate = available && args != null && args.length > 4 && args[4] != null ? args[4] : null;
+            timeView.setText(available && uploadDate != null ? uploadDate : LocaleController.getString("LastCheck", R.string.LastCheck) + ": " + LocaleController.formatDateTime(ExteraConfig.lastUpdateCheckTime / 1000));
             frame.addView(timeView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 20, Gravity.LEFT, available ? 75 : 0, 35, 0, 0));
 
             addView(frame, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, 0, 21, 10, 0, 10));
@@ -444,9 +481,27 @@ public class UpdaterBottomSheet2 extends BottomSheet {
 
     @Override
     public void show() {
-        super.show();
-        if (headerCell.getImageView() != null) {
+        if (isDismissed()) {
+            return;
+        }
+        try {
+            super.show();
+        } catch (Exception e) {
+            return;
+        }
+        if (headerCell != null && headerCell.getImageView() != null && headerCell.getImageView().getAnimatedDrawable() != null) {
             headerCell.getImageView().playAnimation();
         }
+    }
+
+    @Override
+    public void dismiss() {
+        if (headerCell != null && headerCell.getImageView() != null) {
+            try {
+                headerCell.getImageView().stopAnimation();
+            } catch (Exception ignored) {
+            }
+        }
+        super.dismiss();
     }
 }

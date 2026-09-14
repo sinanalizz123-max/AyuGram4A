@@ -8,12 +8,12 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Build;
 import android.os.PatternMatcher;
-import android.util.Log;
 
 import androidx.annotation.RequiresApi;
 import androidx.core.graphics.ColorUtils;
 
 import org.telegram.messenger.ApplicationLoader;
+import org.telegram.messenger.FileLog;
 import org.telegram.messenger.R;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.LauncherIconController;
@@ -101,18 +101,33 @@ public class MonetUtils {
     }
 
     public static int getColor(String color) {
+        if (color == null) {
+            return 0;
+        }
         try {
             int alpha = 100;
             if (color.matches(".*\\(.*\\).*")) {
-                alpha = Integer.parseInt(color.substring(color.indexOf("(") + 1, color.indexOf(")")));
+                try {
+                    alpha = Integer.parseInt(color.substring(color.indexOf("(") + 1, color.indexOf(")")));
+                } catch (Exception e) {
+                    FileLog.e(e);
+                    return 0;
+                }
                 color = color.substring(0, color.indexOf("("));
             }
-            int id = ids.getOrDefault(color, 0);
+            Integer boxed = ids.get(color);
+            if (boxed == null) {
+                boxed = ids.getOrDefault(color, 0);
+            }
+            int id = boxed != null ? boxed : 0;
+            if (id == 0 || ApplicationLoader.applicationContext == null) {
+                return 0;
+            }
             int c = ApplicationLoader.applicationContext.getColor(id);
             return ColorUtils.setAlphaComponent(c, (int) (alpha * 2.55f));
         } catch (Exception e) {
-            Log.e("Theme", "Error loading color " + color);
-            e.printStackTrace();
+            FileLog.e("Theme", "Error loading color " + color);
+            FileLog.e(e);
             return 0;
         }
     }
@@ -120,39 +135,72 @@ public class MonetUtils {
     private static class OverlayChangeReceiver extends BroadcastReceiver {
 
         public void register(Context context) {
-            IntentFilter packageFilter = new IntentFilter(ACTION_OVERLAY_CHANGED);
-            packageFilter.addDataScheme("package");
-            packageFilter.addDataSchemeSpecificPart("android", PatternMatcher.PATTERN_LITERAL);
-            context.registerReceiver(this, packageFilter);
+            if (context == null) {
+                return;
+            }
+            try {
+                IntentFilter packageFilter = new IntentFilter(ACTION_OVERLAY_CHANGED);
+                packageFilter.addDataScheme("package");
+                packageFilter.addDataSchemeSpecificPart("android", PatternMatcher.PATTERN_LITERAL);
+                context.registerReceiver(this, packageFilter);
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
         }
 
         public void unregister(Context context) {
-            context.unregisterReceiver(this);
+            if (context == null) {
+                return;
+            }
+            try {
+                context.unregisterReceiver(this);
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
         }
 
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (ACTION_OVERLAY_CHANGED.equals(intent.getAction())) {
-                if (Theme.getActiveTheme().isMonet()) {
-                    String themeToReset = "monet_" + (Theme.getActiveTheme().isDark() ? "dark" : "light") + ".attheme";
-                    File theme = new File(ApplicationLoader.getFilesDirFixed(), themeToReset);
-                    if (theme.exists()) {
-                        theme.delete();
-                    }
-                    Theme.applyTheme(Theme.getActiveTheme());
+            try {
+                if (intent == null || !ACTION_OVERLAY_CHANGED.equals(intent.getAction())) {
+                    return;
                 }
+                var theme = Theme.getActiveTheme();
+                if (theme == null || !theme.isMonet()) {
+                    return;
+                }
+                String themeToReset = "monet_" + (theme.isDark() ? "dark" : "light") + ".attheme";
+                File file = new File(ApplicationLoader.getFilesDirFixed(), themeToReset);
+                if (file.exists()) {
+                    //noinspection ResultOfMethodCallIgnored
+                    file.delete();
+                }
+                Theme.applyTheme(theme);
+            } catch (Exception e) {
+                FileLog.e(e);
             }
         }
     }
 
     public static void registerReceiver(Context context) {
-        overlayChangeReceiver.register(context);
+        if (context == null) {
+            return;
+        }
+        try {
+            overlayChangeReceiver.register(context);
+        } catch (Exception e) {
+            FileLog.e(e);
+        }
     }
 
     public static void unregisterReceiver(Context context) {
+        if (context == null) {
+            return;
+        }
         try {
             overlayChangeReceiver.unregister(context);
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            FileLog.e(e);
         }
     }
 }

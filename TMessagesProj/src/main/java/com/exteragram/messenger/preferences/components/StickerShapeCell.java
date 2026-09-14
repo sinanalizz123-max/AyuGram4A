@@ -45,7 +45,10 @@ public class StickerShapeCell extends LinearLayout {
         private final boolean isRoundedAsMsg;
         private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         private final RectF rect = new RectF();
+        private final Rect rect1 = new Rect();
         private final Paint outlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private ValueAnimator animator;
         private float progress;
 
         public StickerShape(Context context, boolean rounded, boolean roundedAsMsg) {
@@ -72,8 +75,8 @@ public class StickerShapeCell extends LinearLayout {
             int b = Color.blue(color);
 
             rect.set(0, 0, getMeasuredWidth(), AndroidUtilities.dp(80));
-            Theme.dialogs_onlineCirclePaint.setColor(Color.argb(20, r, g, b));
-            canvas.drawRoundRect(rect, AndroidUtilities.dp(8), AndroidUtilities.dp(8), Theme.dialogs_onlineCirclePaint);
+            fillPaint.setColor(Color.argb(20, r, g, b));
+            canvas.drawRoundRect(rect, AndroidUtilities.dp(8), AndroidUtilities.dp(8), fillPaint);
 
             float stroke = outlinePaint.getStrokeWidth() / 2;
             rect.set(stroke, stroke, getMeasuredWidth() - stroke, AndroidUtilities.dp(80) - stroke);
@@ -85,17 +88,16 @@ public class StickerShapeCell extends LinearLayout {
             canvas.drawText(text, (getMeasuredWidth() - width) >> 1, AndroidUtilities.dp(102), textPaint);
 
             rect.set(AndroidUtilities.dp(10), AndroidUtilities.dp(10), getMeasuredWidth() - AndroidUtilities.dp(10), AndroidUtilities.dp(70));
-            Theme.dialogs_onlineCirclePaint.setColor(Color.argb(90, r, g, b));
+            fillPaint.setColor(Color.argb(90, r, g, b));
             if (!isRounded && !isRoundedAsMsg) {
-                canvas.drawRoundRect(rect, AndroidUtilities.dp(0), AndroidUtilities.dp(0), Theme.dialogs_onlineCirclePaint);
+                canvas.drawRoundRect(rect, AndroidUtilities.dp(0), AndroidUtilities.dp(0), fillPaint);
             } else if (isRounded) {
-                canvas.drawRoundRect(rect, AndroidUtilities.dp(6), AndroidUtilities.dp(6), Theme.dialogs_onlineCirclePaint);
+                canvas.drawRoundRect(rect, AndroidUtilities.dp(6), AndroidUtilities.dp(6), fillPaint);
             } else {
-                @SuppressLint("DrawAllocation") Rect rect1 = new Rect();
                 rect.round(rect1);
                 int rad = AndroidUtilities.dp(SharedConfig.bubbleRadius);
-                @SuppressLint("DrawAllocation") ShapeDrawable defaultDrawable = new ShapeDrawable(new RoundRectShape(new float[]{rad, rad, rad, rad, rad, rad, rad / 3, rad / 3}, null, null));
-                defaultDrawable.getPaint().setColor(Theme.dialogs_onlineCirclePaint.getColor());
+                ShapeDrawable defaultDrawable = new ShapeDrawable(new RoundRectShape(new float[]{rad, rad, rad, rad, rad, rad, rad / 3, rad / 3}, null, null));
+                defaultDrawable.getPaint().setColor(fillPaint.getColor());
                 defaultDrawable.setBounds(rect1);
                 defaultDrawable.draw(canvas);
             }
@@ -116,13 +118,26 @@ public class StickerShapeCell extends LinearLayout {
                 return;
             }
 
+            if (animator != null) {
+                animator.cancel();
+                animator = null;
+            }
             if (animate) {
-                ValueAnimator animator = ValueAnimator.ofFloat(progress, to).setDuration(250);
+                animator = ValueAnimator.ofFloat(progress, to).setDuration(250);
                 animator.setInterpolator(Easings.easeInOutQuad);
                 animator.addUpdateListener(animation -> setProgress((Float) animation.getAnimatedValue()));
                 animator.start();
             } else {
                 setProgress(to);
+            }
+        }
+
+        @Override
+        protected void onDetachedFromWindow() {
+            super.onDetachedFromWindow();
+            if (animator != null) {
+                animator.cancel();
+                animator = null;
             }
         }
     }
@@ -153,8 +168,20 @@ public class StickerShapeCell extends LinearLayout {
     @Override
     public void invalidate() {
         super.invalidate();
+        if (stickerShape[0] != null && stickerShape[1] != null && stickerShape[2] != null) {
+            for (int a = 0; a < 3; a++) {
+                stickerShape[a].invalidate();
+            }
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
         for (int a = 0; a < 3; a++) {
-            stickerShape[a].invalidate();
+            if (stickerShape[a] != null) {
+                stickerShape[a].clearAnimation();
+            }
         }
     }
 

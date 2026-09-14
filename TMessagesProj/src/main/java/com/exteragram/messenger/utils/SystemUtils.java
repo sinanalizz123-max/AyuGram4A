@@ -35,7 +35,15 @@ public class SystemUtils {
 
     @RequiresApi(api = 23)
     public static boolean isPermissionGranted(String perm) {
-        return ApplicationLoader.applicationContext.checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED;
+        try {
+            if (perm == null || ApplicationLoader.applicationContext == null) {
+                return false;
+            }
+            return ApplicationLoader.applicationContext.checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED;
+        } catch (Exception e) {
+            FileLog.e(e);
+            return false;
+        }
     }
 
     @RequiresApi(api = 23)
@@ -117,23 +125,35 @@ public class SystemUtils {
     }
 
     public static boolean hasBiometrics() {
-        if (Build.VERSION.SDK_INT >= 29) {
-            BiometricManager biometricManager = ApplicationLoader.applicationContext.getSystemService(BiometricManager.class);
-            if (biometricManager == null) {
+        try {
+            if (ApplicationLoader.applicationContext == null) {
                 return false;
             }
-            if (Build.VERSION.SDK_INT >= 30) {
-                return biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) == BiometricManager.BIOMETRIC_SUCCESS;
-            } else {
-                //noinspection deprecation
-                return biometricManager.canAuthenticate() == BiometricManager.BIOMETRIC_SUCCESS;
+            if (Build.VERSION.SDK_INT >= 29) {
+                BiometricManager biometricManager = ApplicationLoader.applicationContext.getSystemService(BiometricManager.class);
+                if (biometricManager == null) {
+                    return false;
+                }
+                if (Build.VERSION.SDK_INT >= 30) {
+                    return biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) == BiometricManager.BIOMETRIC_SUCCESS;
+                } else {
+                    //noinspection deprecation
+                    return biometricManager.canAuthenticate() == BiometricManager.BIOMETRIC_SUCCESS;
+                }
+            } else if (Build.VERSION.SDK_INT >= 23) {
+                FingerprintManager fingerprintManager = ApplicationLoader.applicationContext.getSystemService(FingerprintManager.class);
+                if (fingerprintManager == null) {
+                    return false;
+                }
+                try {
+                    return fingerprintManager.isHardwareDetected() && fingerprintManager.hasEnrolledFingerprints();
+                } catch (SecurityException e) {
+                    FileLog.e(e);
+                    return false;
+                }
             }
-        } else if (Build.VERSION.SDK_INT >= 23) {
-            FingerprintManager fingerprintManager = ApplicationLoader.applicationContext.getSystemService(FingerprintManager.class);
-            if (fingerprintManager == null) {
-                return false;
-            }
-            return fingerprintManager.isHardwareDetected() && fingerprintManager.hasEnrolledFingerprints();
+        } catch (Exception e) {
+            FileLog.e(e);
         }
         return false;
     }
@@ -141,8 +161,12 @@ public class SystemUtils {
     public static boolean hasGps() {
         boolean hasGps;
         try {
+            if (ApplicationLoader.applicationContext == null) {
+                return false;
+            }
             hasGps = ApplicationLoader.applicationContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_LOCATION_GPS);
         } catch (Throwable e) {
+            FileLog.e(e);
             hasGps = false;
         }
         return hasGps;
@@ -150,12 +174,37 @@ public class SystemUtils {
 
     public static void addFileToClipboard(File file, Runnable callback) {
         try {
+            if (file == null || ApplicationLoader.applicationContext == null) {
+                if (callback != null) {
+                    try {
+                        callback.run();
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                    }
+                }
+                return;
+            }
             Context context = ApplicationLoader.applicationContext;
             ClipboardManager clipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard == null) {
+                return;
+            }
             Uri uri = FileProvider.getUriForFile(context, ApplicationLoader.getApplicationId() + ".provider", file);
+            if (uri == null) {
+                return;
+            }
             ClipData clip = ClipData.newUri(context.getContentResolver(), "label", uri);
+            if (clip == null) {
+                return;
+            }
             clipboard.setPrimaryClip(clip);
-            callback.run();
+            if (callback != null) {
+                try {
+                    callback.run();
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+            }
         } catch (Exception e) {
             FileLog.e(e);
         }

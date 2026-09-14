@@ -46,6 +46,7 @@ public class SolarIconsPreview extends FrameLayout {
 
     private final RectF rect = new RectF();
     private final Paint outlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private final ValueAnimator[] animator = new ValueAnimator[6];
 
@@ -58,7 +59,7 @@ public class SolarIconsPreview extends FrameLayout {
             R.drawable.msg_saved
     };
 
-    private static final Drawable[] icons = new Drawable[iconsRes.length];
+    private final Drawable[] icons = new Drawable[iconsRes.length];
     private final float[] iconChangingProgress = new float[]{
             1f, 1f, 1f, 1f, 1f, 1f
     };
@@ -68,8 +69,13 @@ public class SolarIconsPreview extends FrameLayout {
         setWillNotDraw(false);
         setBackgroundColor(Theme.getColor(Theme.key_windowBackgroundWhite));
         setPadding(AndroidUtilities.dp(21), AndroidUtilities.dp(15), AndroidUtilities.dp(21), AndroidUtilities.dp(21));
+        for (int i = 0; i < iconsRes.length; i++) {
+            Drawable d = ContextCompat.getDrawable(context, iconsRes[i]);
+            if (d != null) {
+                icons[i] = d.mutate();
+            }
+        }
         preview = new FrameLayout(context) {
-            @SuppressLint("DrawAllocation")
             @Override
             protected void onDraw(Canvas canvas) {
                 int color = Theme.getColor(Theme.key_switchTrack);
@@ -79,8 +85,7 @@ public class SolarIconsPreview extends FrameLayout {
                 float w = getMeasuredWidth();
                 float h = getMeasuredHeight();
 
-                for (int i = 0; i < iconsRes.length; i++) {
-                    icons[i] = ContextCompat.getDrawable(context, iconsRes[i]);
+                for (int i = 0; i < icons.length; i++) {
                     if (icons[i] != null) {
                         icons[i].setColorFilter(new PorterDuffColorFilter(ColorUtils.blendARGB(0x00, Theme.getColor(Theme.key_chats_menuItemIcon), iconChangingProgress[i]), PorterDuff.Mode.MULTIPLY));
                     }
@@ -91,8 +96,8 @@ public class SolarIconsPreview extends FrameLayout {
                 outlinePaint.setStrokeWidth(Math.max(2, AndroidUtilities.dp(1f)));
 
                 rect.set(0, 0, w, h);
-                Theme.dialogs_onlineCirclePaint.setColor(Color.argb(20, r, g, b));
-                canvas.drawRoundRect(rect, AndroidUtilities.dp(8), AndroidUtilities.dp(8), Theme.dialogs_onlineCirclePaint);
+                fillPaint.setColor(Color.argb(20, r, g, b));
+                canvas.drawRoundRect(rect, AndroidUtilities.dp(8), AndroidUtilities.dp(8), fillPaint);
 
                 float stroke = outlinePaint.getStrokeWidth() / 2;
                 rect.set(stroke, stroke, w - stroke, h - stroke);
@@ -101,6 +106,9 @@ public class SolarIconsPreview extends FrameLayout {
                 float allIconsWidth = ICON_WIDTH * icons.length;
                 float distance = (w - allIconsWidth) / (icons.length + 1);
                 for (int i = 0; i < icons.length; i++) {
+                    if (icons[i] == null) {
+                        continue;
+                    }
                     int startX = (int) (distance * (i + 1) + ICON_WIDTH * i);
                     int startY = (int) (h / 2 - ICON_WIDTH / 2);
                     Drawable icon = icons[i];
@@ -117,6 +125,10 @@ public class SolarIconsPreview extends FrameLayout {
     @SuppressLint("Recycle")
     public void updateIcons(boolean animate) {
         for (int i = 0; i < icons.length; i++) {
+            if (animator[i] != null) {
+                animator[i].cancel();
+                animator[i] = null;
+            }
             if (animate) {
                 animator[i] = ValueAnimator.ofFloat(1f, 0f).setDuration(250);
                 animator[i].setStartDelay(15L * i);
@@ -130,6 +142,9 @@ public class SolarIconsPreview extends FrameLayout {
                     @Override
                     public void onAnimationEnd(Animator animation) {
                         super.onAnimationEnd(animation);
+                        if (animator[finalI] != animation) {
+                            return;
+                        }
                         if (finalI == 5) {
                             ExteraConfig.editor.putBoolean("useSolarIcons", ExteraConfig.useSolarIcons ^= true).apply();
                             reloadResources();
@@ -151,9 +166,27 @@ public class SolarIconsPreview extends FrameLayout {
     }
 
     @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        for (int i = 0; i < animator.length; i++) {
+            if (animator[i] != null) {
+                animator[i].cancel();
+                animator[i] = null;
+            }
+        }
+        for (int i = 0; i < icons.length; i++) {
+            if (icons[i] != null) {
+                icons[i].setCallback(null);
+            }
+        }
+    }
+
+    @Override
     public void invalidate() {
         super.invalidate();
-        preview.invalidate();
+        if (preview != null) {
+            preview.invalidate();
+        }
     }
 
     @Override

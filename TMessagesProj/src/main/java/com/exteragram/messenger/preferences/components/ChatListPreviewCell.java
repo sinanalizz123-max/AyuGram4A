@@ -52,6 +52,7 @@ public class ChatListPreviewCell extends FrameLayout {
     private final RectF rect = new RectF();
     private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Paint outlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private float statusProgress;
     private float titleProgress;
@@ -70,7 +71,7 @@ public class ChatListPreviewCell extends FrameLayout {
         outlinePaint.setStrokeWidth(Math.max(2, AndroidUtilities.dp(1f)));
 
         preview = new FrameLayout(context) {
-            @SuppressLint("DrawAllocation")
+            private Drawable searchDrawable;
             @Override
             protected void onDraw(Canvas canvas) {
                 int color = Theme.getColor(Theme.key_switchTrack);
@@ -82,24 +83,32 @@ public class ChatListPreviewCell extends FrameLayout {
 
                 textPaint.setColor(ColorUtils.blendARGB(0x00, Theme.getColor(Theme.key_windowBackgroundWhiteBlackText), titleProgress));
                 textPaint.setTextSize(AndroidUtilities.dp(20));
-                titleText = (String) TextUtils.ellipsize(titleText, textPaint, w - AndroidUtilities.dp(130 + 35 * statusProgress), TextUtils.TruncateAt.END);
+                String drawTitle = titleText != null ? titleText : "";
+                drawTitle = (String) TextUtils.ellipsize(drawTitle, textPaint, Math.max(0, w - AndroidUtilities.dp(130 + 35 * statusProgress)), TextUtils.TruncateAt.END);
                 textPaint.setTextSize(AndroidUtilities.dp(18 + 2 * titleProgress));
                 textPaint.setTypeface(AndroidUtilities.getTypeface(AndroidUtilities.TYPEFACE_ROBOTO_MEDIUM));
 
                 rect.set(0, 0, w, h);
-                Theme.dialogs_onlineCirclePaint.setColor(Color.argb(20, r, g, b));
-                canvas.drawRoundRect(rect, AndroidUtilities.dp(8), AndroidUtilities.dp(8), Theme.dialogs_onlineCirclePaint);
+                fillPaint.setColor(Color.argb(20, r, g, b));
+                canvas.drawRoundRect(rect, AndroidUtilities.dp(8), AndroidUtilities.dp(8), fillPaint);
 
                 float stroke = outlinePaint.getStrokeWidth() / 2;
                 rect.set(stroke, stroke, w - stroke, h - stroke);
                 canvas.drawRoundRect(rect, AndroidUtilities.dp(8), AndroidUtilities.dp(8), outlinePaint);
 
-                Drawable search = ContextCompat.getDrawable(context, R.drawable.ic_ab_search).mutate();
-                search.setColorFilter(new PorterDuffColorFilter(Color.argb(204, r, g, b), PorterDuff.Mode.MULTIPLY));
-                search.setBounds((int) w - AndroidUtilities.dp(39), AndroidUtilities.dp(22), (int) w - AndroidUtilities.dp(12), AndroidUtilities.dp(49));
-                search.draw(canvas);
+                if (searchDrawable == null) {
+                    Drawable d = ContextCompat.getDrawable(context, R.drawable.ic_ab_search);
+                    if (d != null) {
+                        searchDrawable = d.mutate();
+                    }
+                }
+                if (searchDrawable != null) {
+                    searchDrawable.setColorFilter(new PorterDuffColorFilter(Color.argb(204, r, g, b), PorterDuff.Mode.MULTIPLY));
+                    searchDrawable.setBounds((int) w - AndroidUtilities.dp(39), AndroidUtilities.dp(22), (int) w - AndroidUtilities.dp(12), AndroidUtilities.dp(49));
+                    searchDrawable.draw(canvas);
+                }
 
-                Theme.dialogs_onlineCirclePaint.setColor(Color.argb(204, r, g, b));
+                fillPaint.setColor(Color.argb(204, r, g, b));
                 for (int i = 0; i < 3; i++) {
                     float start = 28 + 6.1f * i;
                     canvas.drawRoundRect(
@@ -109,17 +118,26 @@ public class ChatListPreviewCell extends FrameLayout {
                             AndroidUtilities.dpf2(start + 2.8f),
                             AndroidUtilities.dp(10),
                             AndroidUtilities.dp(10),
-                            Theme.dialogs_onlineCirclePaint
+                            fillPaint
                     );
                 }
 
-                float width = textPaint.measureText(titleText);
+                float width = textPaint.measureText(drawTitle);
                 float titleStart = centeredTitleProgress * ((w - width - AndroidUtilities.dp(30) * statusProgress) / 2 - AndroidUtilities.dp(78)) + AndroidUtilities.dp(78);
                 float titleEnd = titleStart + width;
 
-                Theme.dialogs_onlineCirclePaint.setColor(ColorUtils.blendARGB(0x00, ColorUtils.setAlphaComponent(Theme.getColor(Theme.key_switchTrack), 0x5F), titleProgress * statusProgress));
-                canvas.drawRoundRect(titleEnd + AndroidUtilities.dp(5), AndroidUtilities.dp(22), titleEnd + AndroidUtilities.dp(30), AndroidUtilities.dp(47), AndroidUtilities.dp(4), AndroidUtilities.dp(4), Theme.dialogs_onlineCirclePaint);
-                canvas.drawText(titleText, titleStart, AndroidUtilities.dp(42), textPaint);
+                fillPaint.setColor(ColorUtils.blendARGB(0x00, ColorUtils.setAlphaComponent(Theme.getColor(Theme.key_switchTrack), 0x5F), titleProgress * statusProgress));
+                canvas.drawRoundRect(titleEnd + AndroidUtilities.dp(5), AndroidUtilities.dp(22), titleEnd + AndroidUtilities.dp(30), AndroidUtilities.dp(47), AndroidUtilities.dp(4), AndroidUtilities.dp(4), fillPaint);
+                canvas.drawText(drawTitle, titleStart, AndroidUtilities.dp(42), textPaint);
+            }
+
+            @Override
+            protected void onDetachedFromWindow() {
+                super.onDetachedFromWindow();
+                if (searchDrawable != null) {
+                    searchDrawable.setCallback(null);
+                    searchDrawable = null;
+                }
             }
         };
         preview.setWillNotDraw(false);
@@ -133,6 +151,10 @@ public class ChatListPreviewCell extends FrameLayout {
         float to = !ExteraConfig.hideActionBarStatus ? 1 : 0;
         if (to == statusProgress && animate || !UserConfig.getInstance(UserConfig.selectedAccount).isPremium())
             return;
+        if (animator != null) {
+            animator.cancel();
+            animator = null;
+        }
         if (animate) {
             animator = ValueAnimator.ofFloat(statusProgress, to).setDuration(250);
             animator.setInterpolator(Easings.easeInOutQuad);
@@ -152,6 +174,10 @@ public class ChatListPreviewCell extends FrameLayout {
         float to = ExteraConfig.centerTitle ? 1 : 0;
         if (to == centeredTitleProgress && animate)
             return;
+        if (animator != null) {
+            animator.cancel();
+            animator = null;
+        }
         if (animate) {
             animator = ValueAnimator.ofFloat(centeredTitleProgress, to).setDuration(250);
             animator.setInterpolator(Easings.easeInOutQuad);
@@ -169,6 +195,10 @@ public class ChatListPreviewCell extends FrameLayout {
     public void updateTitle(boolean animate) {
         if (Objects.equals(titleText, LocaleUtils.getActionBarTitle()) && animate)
             return;
+        if (animator != null) {
+            animator.cancel();
+            animator = null;
+        }
         if (animate) {
             animator = ValueAnimator.ofFloat(1f, 0f).setDuration(250);
             animator.setInterpolator(Easings.easeInOutQuad);
@@ -180,6 +210,9 @@ public class ChatListPreviewCell extends FrameLayout {
                 @Override
                 public void onAnimationEnd(Animator animation) {
                     super.onAnimationEnd(animation);
+                    if (animator != animation) {
+                        return;
+                    }
                     titleText = LocaleUtils.getActionBarTitle();
                     animator.setFloatValues(0f, 1f);
                     animator.removeAllListeners();
@@ -197,7 +230,18 @@ public class ChatListPreviewCell extends FrameLayout {
     @Override
     public void invalidate() {
         super.invalidate();
-        preview.invalidate();
+        if (preview != null) {
+            preview.invalidate();
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        if (animator != null) {
+            animator.cancel();
+            animator = null;
+        }
     }
 
     @Override

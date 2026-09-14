@@ -3,6 +3,7 @@ package com.exteragram.messenger.camera;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.Manifest;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -87,6 +88,8 @@ public class CameraXController {
     private final MeteringPointFactory meteringPointFactory;
     private final Preview.SurfaceProvider surfaceProvider;
     private ExtensionsManager extensionsManager;
+    private ListenableFuture<ProcessCameraProvider> providerFuture;
+    private ListenableFuture<ExtensionsManager> extensionsFuture;
     private boolean stableFPSPreviewOnly = false;
     private boolean noSupportedSurfaceCombinationWorkaround = false;
     public static final int CAMERA_NONE = 0;
@@ -152,23 +155,33 @@ public class CameraXController {
     public void initCamera(Context context, boolean isInitialFrontface, Runnable onPreInit) {
         this.isFrontface = isInitialFrontface;
         ListenableFuture<ProcessCameraProvider> providerFtr = ProcessCameraProvider.getInstance(context);
+        providerFuture = providerFtr;
         providerFtr.addListener(
                 () -> {
                     try {
                         provider = providerFtr.get();
                         ListenableFuture<ExtensionsManager> extensionFuture = ExtensionsManager.getInstanceAsync(context, provider);
+                        extensionsFuture = extensionFuture;
                         extensionFuture.addListener(() -> {
                             try {
                                 extensionsManager = extensionFuture.get();
                                 bindUseCases();
                                 lifecycle.start();
-                                onPreInit.run();
+                                if (onPreInit != null) {
+                                    onPreInit.run();
+                                }
                                 isInitiated = true;
-                            } catch (ExecutionException | InterruptedException e) {
+                            } catch (ExecutionException e) {
+                                e.printStackTrace();
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
                                 e.printStackTrace();
                             }
                         }, ContextCompat.getMainExecutor(context));
-                    } catch (ExecutionException | InterruptedException e) {
+                    } catch (ExecutionException e) {
+                        e.printStackTrace();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
                         e.printStackTrace();
                     }
                 }, ContextCompat.getMainExecutor(context)
@@ -191,6 +204,18 @@ public class CameraXController {
 
     public void closeCamera() {
         lifecycle.stop();
+        if (providerFuture != null) {
+            providerFuture.cancel(true);
+        }
+        if (extensionsFuture != null) {
+            extensionsFuture.cancel(true);
+        }
+        if (provider != null) {
+            try {
+                provider.unbindAll();
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     @SuppressLint("RestrictedApi")
@@ -223,22 +248,41 @@ public class CameraXController {
     }
 
     public int setNextFlashMode() {
+        if (iCapture == null) {
+            return ImageCapture.FLASH_MODE_OFF;
+        }
         int next = getNextFlashMode(iCapture.getFlashMode());
         iCapture.setFlashMode(next);
         return next;
     }
 
     public int getCurrentFlashMode() {
+        if (iCapture == null) {
+            return ImageCapture.FLASH_MODE_OFF;
+        }
         return iCapture.getFlashMode();
     }
 
     public static boolean isFlashAvailable() {
-        return camera.getCameraInfo().hasFlashUnit();
+        if (camera == null) {
+            return false;
+        }
+        try {
+            return camera.getCameraInfo().hasFlashUnit();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public static void setTorchEnabled(boolean enabled) {
+        if (camera == null) {
+            return;
+        }
         if (isFlashAvailable()) {
-            camera.getCameraControl().enableTorch(enabled);
+            try {
+                camera.getCameraControl().enableTorch(enabled);
+            } catch (Exception ignored) {
+            }
         }
     }
 
@@ -287,18 +331,22 @@ public class CameraXController {
     }
 
     @SuppressLint({"RestrictedApi", "UnsafeExperimentalUsageError", "UnsafeOptInUsageError"})
-    public void bindUseCases() {
+    public synchronized void bindUseCases() {
         if (provider == null) return;
         android.util.Size targetSize = getVideoBestSize();
         Preview.Builder previewBuilder = new Preview.Builder();
         previewBuilder.setTargetResolution(targetSize);
         if (!isFrontface && selectedEffect == CAMERA_WIDE) {
-            cameraSelector = CameraXUtils.getDefaultWideAngleCamera(provider);
+            try {
+                cameraSelector = CameraXUtils.getDefaultWideAngleCamera(provider);
+            } catch (IllegalArgumentException e) {
+                cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
+            }
         } else {
             cameraSelector = isFrontface ? CameraSelector.DEFAULT_FRONT_CAMERA : CameraSelector.DEFAULT_BACK_CAMERA;
         }
 
-        if (!isFrontface) {
+        if (!isFrontface && extensionsManager != null) {
             switch (selectedEffect) {
                 case CAMERA_NIGHT:
                     cameraSelector = extensionsManager.getExtensionEnabledCameraSelector(cameraSelector, ExtensionMode.NIGHT);
@@ -352,6 +400,14 @@ public class CameraXController {
     }
 
     public void setZoom(float value) {
+        if (camera == null) {
+            return;
+        }
+        if (value < 0f) {
+            value = 0f;
+        } else if (value > 1f) {
+            value = 1f;
+        }
         camera.getCameraControl().setLinearZoom(oldZoomSelection = value);
     }
 
@@ -377,8 +433,19 @@ public class CameraXController {
 
     @SuppressLint("UnsafeExperimentalUsageError")
     public void setExposureCompensation(float value) {
+        if (camera == null) {
+            return;
+        }
         if (!camera.getCameraInfo().getExposureState().isExposureCompensationSupported()) return;
         Range<Integer> evRange = camera.getCameraInfo().getExposureState().getExposureCompensationRange();
+        if (evRange == null) {
+            return;
+        }
+        if (value < 0f) {
+            value = 0f;
+        } else if (value > 1f) {
+            value = 1f;
+        }
         int index = (int) (mix(evRange.getLower().floatValue(), evRange.getUpper().floatValue(), value) + 0.5f);
         camera.getCameraControl().setExposureCompensationIndex(index);
     }
@@ -408,6 +475,9 @@ public class CameraXController {
 
     @SuppressLint({"UnsafeExperimentalUsageError", "RestrictedApi"})
     public void focusToPoint(int x, int y) {
+        if (camera == null) {
+            return;
+        }
         MeteringPoint point = meteringPointFactory.createPoint(x, y);
 
         FocusMeteringAction action = new FocusMeteringAction
@@ -421,46 +491,90 @@ public class CameraXController {
 
     @SuppressLint({"RestrictedApi", "MissingPermission"})
     public void recordVideo(final File path, boolean mirror, CameraXView.VideoSavedCallback onStop) {
+        if (provider == null || vCapture == null || path == null) {
+            return;
+        }
         if (noSupportedSurfaceCombinationWorkaround) {
-            provider.unbindAll();
-            provider.bindToLifecycle(lifecycle, cameraSelector, previewUseCase, vCapture);
+            try {
+                provider.unbindAll();
+                provider.bindToLifecycle(lifecycle, cameraSelector, previewUseCase, vCapture);
+            } catch (Exception ignored) {
+            }
         }
         videoSavedCallback = onStop;
         FileOutputOptions fileOpt = new FileOutputOptions
                 .Builder(path)
                 .build();
 
-        if (iCapture.getFlashMode() == ImageCapture.FLASH_MODE_ON) {
-            camera.getCameraControl().enableTorch(true);
+        boolean torchOn = iCapture != null && iCapture.getFlashMode() == ImageCapture.FLASH_MODE_ON;
+        if (torchOn && camera != null) {
+            try {
+                camera.getCameraControl().enableTorch(true);
+            } catch (Exception ignored) {
+            }
         }
-        recording = vCapture.getOutput()
-                .prepareRecording(ApplicationLoader.applicationContext, fileOpt)
-                .withAudioEnabled()
+        boolean hasAudioPermission = ContextCompat.checkSelfPermission(ApplicationLoader.applicationContext, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        androidx.camera.video.PendingRecording pending = vCapture.getOutput()
+                .prepareRecording(ApplicationLoader.applicationContext, fileOpt);
+        if (hasAudioPermission) {
+            try {
+                pending = pending.withAudioEnabled();
+            } catch (Exception ignored) {
+            }
+        }
+        recording = pending
                 .start(AsyncTask.THREAD_POOL_EXECUTOR, videoRecordEvent -> {
                     if (videoRecordEvent instanceof VideoRecordEvent.Finalize) {
                         VideoRecordEvent.Finalize finalize = (VideoRecordEvent.Finalize) videoRecordEvent;
                         if (finalize.hasError()) {
+                            if (torchOn && camera != null) {
+                                try {
+                                    camera.getCameraControl().enableTorch(false);
+                                } catch (Exception ignored) {
+                                }
+                            }
                             if (noSupportedSurfaceCombinationWorkaround) {
                                 AndroidUtilities.runOnUIThread(() -> {
-                                    provider.unbindAll();
-                                    provider.bindToLifecycle(lifecycle, cameraSelector, previewUseCase, iCapture);
+                                    if (provider == null) {
+                                        return;
+                                    }
+                                    try {
+                                        provider.unbindAll();
+                                        provider.bindToLifecycle(lifecycle, cameraSelector, previewUseCase, iCapture);
+                                    } catch (Exception ignored) {
+                                    }
                                 });
                             }
                             FileLog.e(finalize.getCause());
                         } else {
                             if (noSupportedSurfaceCombinationWorkaround) {
                                 AndroidUtilities.runOnUIThread(() -> {
-                                    provider.unbindAll();
-                                    provider.bindToLifecycle(lifecycle, cameraSelector, previewUseCase, iCapture);
+                                    if (provider == null) {
+                                        return;
+                                    }
+                                    try {
+                                        provider.unbindAll();
+                                        provider.bindToLifecycle(lifecycle, cameraSelector, previewUseCase, iCapture);
+                                    } catch (Exception ignored) {
+                                    }
                                 });
                             }
 
                             if (abandonCurrentVideo) {
                                 abandonCurrentVideo = false;
+                                if (torchOn && camera != null) {
+                                    try {
+                                        camera.getCameraControl().enableTorch(false);
+                                    } catch (Exception ignored) {
+                                    }
+                                }
                             } else {
                                 finishRecordingVideo(path, mirror);
-                                if (iCapture.getFlashMode() == ImageCapture.FLASH_MODE_ON) {
-                                    camera.getCameraControl().enableTorch(false);
+                                if (torchOn && camera != null) {
+                                    try {
+                                        camera.getCameraControl().enableTorch(false);
+                                    } catch (Exception ignored) {
+                                    }
                                 }
                             }
                         }
@@ -490,7 +604,7 @@ public class CameraXController {
             }
         }
         Bitmap bitmap = SendMessagesHelper.createVideoThumbnail(path.getAbsolutePath(), MediaStore.Video.Thumbnails.MINI_KIND);
-        if (mirror) {
+        if (mirror && bitmap != null) {
             Bitmap b = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(b);
             canvas.scale(-1, 1, b.getWidth() >> 1, b.getHeight() >> 1);
@@ -500,11 +614,21 @@ public class CameraXController {
         }
         String fileName = Integer.MIN_VALUE + "_" + SharedConfig.getLastLocalId() + ".jpg";
         final File cacheFile = new File(FileLoader.getDirectory(FileLoader.MEDIA_DIR_CACHE), fileName);
+        FileOutputStream stream = null;
         try {
-            FileOutputStream stream = new FileOutputStream(cacheFile);
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 87, stream);
+            stream = new FileOutputStream(cacheFile);
+            if (bitmap != null) {
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 87, stream);
+            }
         } catch (Throwable e) {
             FileLog.e(e);
+        } finally {
+            if (stream != null) {
+                try {
+                    stream.close();
+                } catch (IOException ignored) {
+                }
+            }
         }
         SharedConfig.saveConfig();
         final long durationFinal = duration;
@@ -526,21 +650,28 @@ public class CameraXController {
     public void stopVideoRecording(final boolean abandon) {
         abandonCurrentVideo = abandon;
         if (recording != null) {
-            recording.stop();
+            try {
+                recording.stop();
+            } catch (Exception ignored) {
+            }
+            recording = null;
         }
     }
 
 
     public void takePicture(final File file, Runnable onTake) {
         if (stableFPSPreviewOnly) return;
+        if (iCapture == null) {
+            return;
+        }
         iCapture.takePicture(AsyncTask.THREAD_POOL_EXECUTOR, new ImageCapture.OnImageCapturedCallback() {
             @SuppressLint("RestrictedApi")
             @Override
             public void onCaptureSuccess(@NonNull ImageProxy image) {
                 int orientation = image.getImageInfo().getRotationDegrees();
+                FileOutputStream output = null;
                 try {
-
-                    FileOutputStream output = new FileOutputStream(file);
+                    output = new FileOutputStream(file);
 
                     int flipState = 0;
                     if (isFrontface && (orientation == 90 || orientation == 270)) {
@@ -550,8 +681,9 @@ public class CameraXController {
                     }
 
                     byte[] jpegByteArray = JpegImageUtils.imageToJpegByteArray(image, flipState);
-                    output.write(jpegByteArray);
-                    output.close();
+                    if (jpegByteArray != null) {
+                        output.write(jpegByteArray);
+                    }
                     Exif exif = Exif.createFromFile(file);
                     exif.attachTimestamp();
 
@@ -561,8 +693,15 @@ public class CameraXController {
                         byte[] data = new byte[buffer.capacity()];
                         buffer.get(data);
                         InputStream inputStream = new ByteArrayInputStream(data);
-                        Exif originalExif = Exif.createFromInputStream(inputStream);
-                        exif.setOrientation(originalExif.getOrientation());
+                        try {
+                            Exif originalExif = Exif.createFromInputStream(inputStream);
+                            exif.setOrientation(originalExif.getOrientation());
+                        } finally {
+                            try {
+                                inputStream.close();
+                            } catch (IOException ignored) {
+                            }
+                        }
                     } else {
                         exif.rotate(orientation);
                     }
@@ -570,9 +709,21 @@ public class CameraXController {
                 } catch (JpegImageUtils.CodecFailedException | IOException e) {
                     e.printStackTrace();
                     FileLog.e(e);
+                } finally {
+                    if (output != null) {
+                        try {
+                            output.close();
+                        } catch (IOException ignored) {
+                        }
+                    }
+                    try {
+                        image.close();
+                    } catch (Exception ignored) {
+                    }
                 }
-                image.close();
-                AndroidUtilities.runOnUIThread(onTake);
+                if (onTake != null) {
+                    AndroidUtilities.runOnUIThread(onTake);
+                }
             }
 
             @Override
@@ -596,6 +747,9 @@ public class CameraXController {
 
     public int getDisplayOrientation() {
         WindowManager mgr = (WindowManager) ApplicationLoader.applicationContext.getSystemService(Context.WINDOW_SERVICE);
+        if (mgr == null || mgr.getDefaultDisplay() == null) {
+            return 0;
+        }
         int rotation = mgr.getDefaultDisplay().getRotation();
         switch (rotation) {
             case Surface.ROTATION_90:
@@ -613,6 +767,9 @@ public class CameraXController {
     private int getDeviceDefaultOrientation() {
         WindowManager windowManager = (WindowManager) (ApplicationLoader.applicationContext.getSystemService(Context.WINDOW_SERVICE));
         Configuration config = ApplicationLoader.applicationContext.getResources().getConfiguration();
+        if (windowManager == null || windowManager.getDefaultDisplay() == null || config == null) {
+            return Configuration.ORIENTATION_PORTRAIT;
+        }
         int rotation = windowManager.getDefaultDisplay().getRotation();
 
         if (((rotation == Surface.ROTATION_0 || rotation == Surface.ROTATION_180) && config.orientation == Configuration.ORIENTATION_LANDSCAPE) ||
@@ -624,7 +781,16 @@ public class CameraXController {
     }
 
     private float mix(Float x, Float y, Float f) {
-        return x * (1 - f) + y * f;
+        if (x == null || y == null || f == null) {
+            return 0f;
+        }
+        float ff = f;
+        if (ff < 0f) {
+            ff = 0f;
+        } else if (ff > 1f) {
+            ff = 1f;
+        }
+        return x * (1 - ff) + y * ff;
     }
 
     @IntDef({CAMERA_NONE, CAMERA_AUTO, CAMERA_HDR, CAMERA_NIGHT})

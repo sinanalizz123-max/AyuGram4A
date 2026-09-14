@@ -48,9 +48,18 @@ public final class JpegImageUtils {
 
     @NonNull
     public static byte[] yuv_420_888toNv21(@NonNull ImageProxy image) {
+        if (image.getPlanes() == null || image.getPlanes().length < 3) {
+            return new byte[0];
+        }
+        if (image.getWidth() <= 0 || image.getHeight() <= 0) {
+            return new byte[0];
+        }
         ImageProxy.PlaneProxy yPlane = image.getPlanes()[0];
         ImageProxy.PlaneProxy uPlane = image.getPlanes()[1];
         ImageProxy.PlaneProxy vPlane = image.getPlanes()[2];
+        if (yPlane == null || uPlane == null || vPlane == null) {
+            return new byte[0];
+        }
 
         ByteBuffer yBuffer = yPlane.getBuffer();
         ByteBuffer uBuffer = uPlane.getBuffer();
@@ -62,11 +71,19 @@ public final class JpegImageUtils {
         int ySize = yBuffer.remaining();
 
         int position = 0;
-        byte[] nv21 = new byte[ySize + (image.getWidth() * image.getHeight() / 2)];
+        int frameSize = image.getWidth() * image.getHeight();
+        if (frameSize <= 0 || ySize < 0) {
+            return new byte[0];
+        }
+        byte[] nv21 = new byte[ySize + (frameSize / 2)];
 
         // Add the full y buffer to the array. If rowStride > 1, some padding may be skipped.
         for (int row = 0; row < image.getHeight(); row++) {
-            yBuffer.get(nv21, position, image.getWidth());
+            if (position + image.getWidth() > nv21.length) {
+                break;
+            }
+            int len = Math.min(image.getWidth(), yBuffer.remaining());
+            yBuffer.get(nv21, position, len);
             position += image.getWidth();
             yBuffer.position(
                     Math.min(ySize, yBuffer.position() - image.getWidth() + yPlane.getRowStride()));
@@ -81,14 +98,23 @@ public final class JpegImageUtils {
 
         // Interleave the u and v frames, filling up the rest of the buffer. Use two line buffers to
         // perform faster bulk gets from the byte buffers.
-        byte[] vLineBuffer = new byte[vRowStride];
-        byte[] uLineBuffer = new byte[uRowStride];
+        byte[] vLineBuffer = new byte[Math.max(1, vRowStride)];
+        byte[] uLineBuffer = new byte[Math.max(1, uRowStride)];
         for (int row = 0; row < chromaHeight; row++) {
+            if (vBuffer.remaining() <= 0 || uBuffer.remaining() <= 0) {
+                break;
+            }
             vBuffer.get(vLineBuffer, 0, Math.min(vRowStride, vBuffer.remaining()));
             uBuffer.get(uLineBuffer, 0, Math.min(uRowStride, uBuffer.remaining()));
             int vLineBufferPosition = 0;
             int uLineBufferPosition = 0;
             for (int col = 0; col < chromaWidth; col++) {
+                if (position + 1 >= nv21.length) {
+                    break;
+                }
+                if (vLineBufferPosition >= vLineBuffer.length || uLineBufferPosition >= uLineBuffer.length) {
+                    break;
+                }
                 nv21[position++] = vLineBuffer[vLineBufferPosition];
                 nv21[position++] = uLineBuffer[uLineBufferPosition];
                 vLineBufferPosition += vPixelStride;
@@ -106,6 +132,10 @@ public final class JpegImageUtils {
         if (flipState == FLIP_NORMAL) return data;
 
         Bitmap source = BitmapFactory.decodeByteArray(data, 0, data.length);
+        if (source == null) {
+            throw new CodecFailedException("Decode byte array failed.",
+                    CodecFailedException.FailureType.DECODE_FAILED);
+        }
         Matrix matrix = new Matrix();
         if (flipState == FLIP_Y) {
             matrix.postScale(1, -1, source.getWidth() / 2f, source.getHeight() / 2f);
@@ -114,12 +144,13 @@ public final class JpegImageUtils {
         }
 
         Bitmap flipped = Bitmap.createBitmap(source, 0, 0, source.getWidth(), source.getHeight(), matrix, true);
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        boolean success = flipped.compress(Bitmap.CompressFormat.JPEG, 100, out);
-        if (!success) {
+        source.recycle();
+        if (flipped == null) {
             throw new CodecFailedException("Encode bitmap failed.",
                     CodecFailedException.FailureType.ENCODE_FAILED);
         }
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        boolean success = flipped.compress(Bitmap.CompressFormat.JPEG, 100, out);
         flipped.recycle();
 
         return out.toByteArray();
@@ -135,18 +166,26 @@ public final class JpegImageUtils {
             return data;
         }
 
-        Bitmap bitmap;
+        Bitmap bitmap = null;
+        BitmapRegionDecoder decoder = null;
         try {
-            BitmapRegionDecoder decoder = BitmapRegionDecoder.newInstance(data, 0, data.length,
+            decoder = BitmapRegionDecoder.newInstance(data, 0, data.length,
                     false);
+            if (decoder == null) {
+                throw new CodecFailedException("Decode byte array failed.",
+                        CodecFailedException.FailureType.DECODE_FAILED);
+            }
             bitmap = decoder.decodeRegion(cropRect, new BitmapFactory.Options());
-            decoder.recycle();
         } catch (IllegalArgumentException e) {
             throw new CodecFailedException("Decode byte array failed with illegal argument." + e,
                     CodecFailedException.FailureType.DECODE_FAILED);
         } catch (IOException e) {
             throw new CodecFailedException("Decode byte array failed.",
                     CodecFailedException.FailureType.DECODE_FAILED);
+        } finally {
+            if (decoder != null) {
+                decoder.recycle();
+            }
         }
 
         if (bitmap == null) {
@@ -184,6 +223,9 @@ public final class JpegImageUtils {
     }
 
     private static boolean shouldCropImage(ImageProxy image) {
+        if (image.getCropRect() == null) {
+            return false;
+        }
         Size sourceSize = new Size(image.getWidth(), image.getHeight());
         Size targetSize = new Size(image.getCropRect().width(), image.getCropRect().height());
 
@@ -192,6 +234,10 @@ public final class JpegImageUtils {
 
     private static byte[] jpegImageToJpegByteArray(ImageProxy image, int flipState) throws CodecFailedException {
         ImageProxy.PlaneProxy[] planes = image.getPlanes();
+        if (planes == null || planes.length == 0 || planes[0] == null) {
+            throw new CodecFailedException("Decode byte array failed.",
+                    CodecFailedException.FailureType.DECODE_FAILED);
+        }
         ByteBuffer buffer = planes[0].getBuffer();
         byte[] data = new byte[buffer.capacity()];
         buffer.rewind();

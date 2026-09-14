@@ -88,17 +88,23 @@ public class UpdaterBottomSheet extends BottomSheet {
         timeView.setTextSize(AndroidUtilities.dp(13));
         timeView.setTypeface(AndroidUtilities.getTypeface(AndroidUtilities.TYPEFACE_ROBOTO_REGULAR));
         timeView.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        timeView.setText(available ? update.uploadDate : LocaleController.getString("LastCheck", R.string.LastCheck) + ": " + LocaleController.formatDateTime(ExteraConfig.lastUpdateCheckTime / 1000));
+        String uploadDate = available && update != null && update.uploadDate != null ? update.uploadDate : null;
+        timeView.setText(available && uploadDate != null ? uploadDate : LocaleController.getString("LastCheck", R.string.LastCheck) + ": " + LocaleController.formatDateTime(ExteraConfig.lastUpdateCheckTime / 1000));
         header.addView(timeView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, 20, Gravity.LEFT, available ? 75 : 0, 35, 0, 0));
 
         TextCell version = new TextCell(context);
         version.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector), 100, 0));
-        if (available) {
+        if (available && update != null && update.version != null) {
             version.setTextAndValueAndIcon(LocaleController.getString("Version", R.string.Version), update.version.replaceAll("v|-beta|-force", ""), R.drawable.msg_info, true);
         } else {
             version.setTextAndValueAndIcon(LocaleController.getString("CurrentVersion", R.string.CurrentVersion), BuildVars.BUILD_VERSION_STRING, R.drawable.msg_info, true);
         }
-        version.setOnClickListener(v -> copyText(version.getTextView().getText() + ": " + version.getValueTextView().getText()));
+        version.setOnClickListener(v -> {
+            if (version.getTextView() == null || version.getValueTextView() == null) {
+                return;
+            }
+            copyText(version.getTextView().getText() + ": " + version.getValueTextView().getText());
+        });
         linearLayout.addView(version);
 
         View divider = new View(context) {
@@ -110,22 +116,32 @@ public class UpdaterBottomSheet extends BottomSheet {
             }
         };
 
-        if (available) {
+        if (available && update != null) {
             TextCell size = new TextCell(context);
             size.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector), 100, 0));
-            size.setTextAndValueAndIcon(LocaleController.getString("UpdateSize", R.string.UpdateSize), update.size, R.drawable.msg_sendfile, true);
-            size.setOnClickListener(v -> copyText(size.getTextView().getText() + ": " + size.getValueTextView().getText()));
+            size.setTextAndValueAndIcon(LocaleController.getString("UpdateSize", R.string.UpdateSize), update.size != null ? update.size : "", R.drawable.msg_sendfile, true);
+            size.setOnClickListener(v -> {
+                if (size.getTextView() == null || size.getValueTextView() == null) {
+                    return;
+                }
+                copyText(size.getTextView().getText() + ": " + size.getValueTextView().getText());
+            });
             linearLayout.addView(size);
 
             TextCell changelog = new TextCell(context);
             changelog.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector), 100, 0));
             changelog.setTextAndIcon(LocaleController.getString("Changelog", R.string.Changelog), R.drawable.msg_log, false);
-            changelog.setOnClickListener(v -> copyText(changelog.getTextView().getText() + "\n"));
+            changelog.setOnClickListener(v -> {
+                if (changelog.getTextView() == null) {
+                    return;
+                }
+                copyText(changelog.getTextView().getText() + "\n");
+            });
             linearLayout.addView(changelog);
 
             TextInfoPrivacyCell changelogTextView = new TextInfoPrivacyCell(context);
             changelogTextView.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText));
-            changelogTextView.setText(UpdaterUtils.replaceTags(update.changelog));
+            changelogTextView.setText(UpdaterUtils.replaceTags(update.changelog != null ? update.changelog : ""));
             linearLayout.addView(changelogTextView, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.WRAP_CONTENT));
 
             linearLayout.addView(divider, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, AndroidUtilities.dp(1)));
@@ -141,6 +157,10 @@ public class UpdaterBottomSheet extends BottomSheet {
             doneButton.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 14);
             doneButton.setText(LocaleController.getString("AppUpdateDownloadNow", R.string.AppUpdateDownloadNow));
             doneButton.setOnClickListener(v -> {
+                if (fragment == null || fragment.getContext() == null || update.downloadURL == null) {
+                    dismiss();
+                    return;
+                }
                 UpdaterUtils.downloadApk(fragment.getContext(), update.downloadURL, AyuConstants.APP_NAME + " " + update.version);
                 dismiss();
             });
@@ -166,7 +186,12 @@ public class UpdaterBottomSheet extends BottomSheet {
             TextCell buildType = new TextCell(context);
             buildType.setBackground(Theme.createSelectorDrawable(Theme.getColor(Theme.key_listSelector), 100, 0));
             buildType.setTextAndValueAndIcon(LocaleController.getString("BuildType", R.string.BuildType), btype, R.drawable.msg_customize, true);
-            buildType.setOnClickListener(v -> copyText(buildType.getTextView().getText() + ": " + buildType.getValueTextView().getText()));
+            buildType.setOnClickListener(v -> {
+                if (buildType.getTextView() == null || buildType.getValueTextView() == null) {
+                    return;
+                }
+                copyText(buildType.getTextView().getText() + ": " + buildType.getValueTextView().getText());
+            });
             linearLayout.addView(buildType);
 
             TextCell checkOnLaunch = new TextCell(context);
@@ -207,14 +232,26 @@ public class UpdaterBottomSheet extends BottomSheet {
             checkUpdates.setIgnoreRTL(!LocaleController.isRTL);
             checkUpdates.adaptWidth = false;
             checkUpdates.setText(LocaleController.getString("CheckForUpdates", R.string.CheckForUpdates));
-            checkUpdates.setOnClickListener(v -> {
+            Runnable checkClick = () -> {
+                if (isDismissed() || fragment == null) {
+                    return;
+                }
                 checkUpdates.setText(LocaleController.getString("CheckingForUpdates", R.string.CheckingForUpdates));
                 UpdaterUtils.checkUpdates(fragment, true, () -> {
+                    if (isDismissed()) {
+                        return;
+                    }
                     timeView.setText(LocaleController.getString("LastCheck", R.string.LastCheck) + ": " + LocaleController.formatDateTime(ExteraConfig.lastUpdateCheckTime / 1000));
                     checkUpdates.setText(LocaleController.getString("CheckForUpdates", R.string.CheckForUpdates));
                     BulletinFactory.of(getContainer(), null).createErrorBulletin(LocaleController.getString("NoUpdates", R.string.NoUpdates)).show();
-                }, this::dismiss);
-            });
+                }, () -> {
+                    if (!isDismissed()) {
+                        dismiss();
+                    }
+                });
+            };
+            checkUpdates.setOnClickListener(v -> checkClick.run());
+            checkUpdatesBackground.setOnClickListener(v -> checkClick.run());
             checkUpdatesBackground.addView(checkUpdates, LayoutHelper.createFrame(LayoutHelper.MATCH_PARENT, LayoutHelper.MATCH_PARENT, Gravity.CENTER));
         }
 
@@ -230,9 +267,27 @@ public class UpdaterBottomSheet extends BottomSheet {
 
     @Override
     public void show() {
-        super.show();
-        if (imageView != null) {
+        if (isDismissed()) {
+            return;
+        }
+        try {
+            super.show();
+        } catch (Exception e) {
+            return;
+        }
+        if (imageView != null && imageView.getAnimatedDrawable() != null) {
             imageView.playAnimation();
         }
+    }
+
+    @Override
+    public void dismiss() {
+        if (imageView != null) {
+            try {
+                imageView.stopAnimation();
+            } catch (Exception ignored) {
+            }
+        }
+        super.dismiss();
     }
 }

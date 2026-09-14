@@ -232,8 +232,6 @@ public class SharedConfig {
     public static boolean isFloatingDebugActive;
     public static LiteMode liteMode;
 
-    public static SharedPreferences.Editor editor;
-
     private static final int[] LOW_SOC = {
             -1775228513, // EXYNOS 850
             802464304,  // EXYNOS 7872
@@ -397,7 +395,6 @@ public class SharedConfig {
             BackgroundActivityPrefs.prefs = ApplicationLoader.applicationContext.getSharedPreferences("background_activity", Context.MODE_PRIVATE);
 
             SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("userconfing", Context.MODE_PRIVATE);
-            editor = preferences.edit();
 
             saveIncomingPhotos = preferences.getBoolean("saveIncomingPhotos", false);
             passcodeHash = preferences.getString("passcodeHash1", "");
@@ -543,7 +540,7 @@ public class SharedConfig {
             configLoaded = true;
 
             try {
-                if (debugWebView) {
+                if (debugWebView && BuildVars.DEBUG_VERSION) {
                     WebView.setWebContentsDebuggingEnabled(true);
                 }
             } catch (Exception e) {
@@ -601,28 +598,32 @@ public class SharedConfig {
     }
 
     public static void setPassportConfig(String json, int hash) {
-        passportConfigMap = null;
-        passportConfigJson = json;
-        passportConfigHash = hash;
+        synchronized (sync) {
+            passportConfigMap = null;
+            passportConfigJson = json;
+            passportConfigHash = hash;
+        }
         saveConfig();
         getCountryLangs();
     }
 
     public static HashMap<String, String> getCountryLangs() {
-        if (passportConfigMap == null) {
-            passportConfigMap = new HashMap<>();
-            try {
-                JSONObject object = new JSONObject(passportConfigJson);
-                Iterator<String> iter = object.keys();
-                while (iter.hasNext()) {
-                    String key = iter.next();
-                    passportConfigMap.put(key.toUpperCase(), object.getString(key).toUpperCase());
+        synchronized (sync) {
+            if (passportConfigMap == null) {
+                passportConfigMap = new HashMap<>();
+                try {
+                    JSONObject object = new JSONObject(passportConfigJson);
+                    Iterator<String> iter = object.keys();
+                    while (iter.hasNext()) {
+                        String key = iter.next();
+                        passportConfigMap.put(key.toUpperCase(), object.getString(key).toUpperCase());
+                    }
+                } catch (Throwable e) {
+                    FileLog.e(e);
                 }
-            } catch (Throwable e) {
-                FileLog.e(e);
             }
+            return passportConfigMap;
         }
-        return passportConfigMap;
     }
 
     public static boolean isAppUpdateAvailable() {
@@ -673,11 +674,7 @@ public class SharedConfig {
                     passcodeSalt = new byte[16];
                     Utilities.random.nextBytes(passcodeSalt);
                     byte[] passcodeBytes = passcode.getBytes(StandardCharsets.UTF_8);
-                    byte[] bytes = new byte[32 + passcodeBytes.length];
-                    System.arraycopy(passcodeSalt, 0, bytes, 0, 16);
-                    System.arraycopy(passcodeBytes, 0, bytes, 16, passcodeBytes.length);
-                    System.arraycopy(passcodeSalt, 0, bytes, passcodeBytes.length + 16, 16);
-                    passcodeHash = Utilities.bytesToHex(Utilities.computeSHA256(bytes, 0, bytes.length));
+                    passcodeHash = Utilities.bytesToHex(Utilities.computePBKDF2(passcodeBytes, passcodeSalt));
                     saveConfig();
                 } catch (Exception e) {
                     FileLog.e(e);
@@ -687,12 +684,20 @@ public class SharedConfig {
         } else {
             try {
                 byte[] passcodeBytes = passcode.getBytes(StandardCharsets.UTF_8);
+                String hash = Utilities.bytesToHex(Utilities.computePBKDF2(passcodeBytes, passcodeSalt));
+                if (passcodeHash.equals(hash)) {
+                    return true;
+                }
                 byte[] bytes = new byte[32 + passcodeBytes.length];
                 System.arraycopy(passcodeSalt, 0, bytes, 0, 16);
                 System.arraycopy(passcodeBytes, 0, bytes, 16, passcodeBytes.length);
                 System.arraycopy(passcodeSalt, 0, bytes, passcodeBytes.length + 16, 16);
-                String hash = Utilities.bytesToHex(Utilities.computeSHA256(bytes, 0, bytes.length));
-                return passcodeHash.equals(hash);
+                String legacyHash = Utilities.bytesToHex(Utilities.computeSHA256(bytes, 0, bytes.length));
+                if (passcodeHash.equals(legacyHash)) {
+                    passcodeHash = hash;
+                    saveConfig();
+                    return true;
+                }
             } catch (Exception e) {
                 FileLog.e(e);
             }
@@ -874,7 +879,9 @@ public class SharedConfig {
 
     public static void toggleDebugWebView() {
         debugWebView = !debugWebView;
-        WebView.setWebContentsDebuggingEnabled(debugWebView);
+        if (BuildVars.DEBUG_VERSION) {
+            WebView.setWebContentsDebuggingEnabled(debugWebView);
+        }
         SharedPreferences preferences = MessagesController.getGlobalMainSettings();
         SharedPreferences.Editor editor = preferences.edit();
         editor.putBoolean("debugWebView", debugWebView);
@@ -1135,41 +1142,60 @@ public class SharedConfig {
     }
 
     public static void loadProxyList() {
-        if (proxyListLoaded) {
-            return;
-        }
-        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
-        String proxyAddress = preferences.getString("proxy_ip", "");
-        String proxyUsername = preferences.getString("proxy_user", "");
-        String proxyPassword = preferences.getString("proxy_pass", "");
-        String proxySecret = preferences.getString("proxy_secret", "");
-        int proxyPort = preferences.getInt("proxy_port", 1080);
+        synchronized (sync) {
+            if (proxyListLoaded) {
+                return;
+            }
+            proxyListLoaded = true;
+            SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+            String proxyAddress = preferences.getString("proxy_ip", "");
+            String proxyUsername = preferences.getString("proxy_user", "");
+            String proxyPassword = preferences.getString("proxy_pass", "");
+            String proxySecret = preferences.getString("proxy_secret", "");
+            int proxyPort = preferences.getInt("proxy_port", 1080);
 
-        proxyListLoaded = true;
-        proxyList.clear();
-        currentProxy = null;
-        String list = preferences.getString("proxy_list", null);
-        if (!TextUtils.isEmpty(list)) {
-            byte[] bytes = Base64.decode(list, Base64.DEFAULT);
-            SerializedData data = new SerializedData(bytes);
-            int count = data.readInt32(false);
-            if (count == -1) { // V2 or newer
-                int version = data.readByte(false);
+            proxyList.clear();
+            currentProxy = null;
+            String list = preferences.getString("proxy_list", null);
+            if (!TextUtils.isEmpty(list)) {
+                byte[] bytes = Base64.decode(list, Base64.DEFAULT);
+                SerializedData data = new SerializedData(bytes);
+                int count = data.readInt32(false);
+                if (count == -1) { // V2 or newer
+                    int version = data.readByte(false);
 
-                if (version == PROXY_SCHEMA_V2) {
-                    count = data.readInt32(false);
+                    if (version == PROXY_SCHEMA_V2) {
+                        count = data.readInt32(false);
 
-                    for (int i = 0; i < count; i++) {
+                        for (int i = 0; i < count; i++) {
+                            ProxyInfo info = new ProxyInfo(
+                                    data.readString(false),
+                                    data.readInt32(false),
+                                    data.readString(false),
+                                    data.readString(false),
+                                    data.readString(false));
+
+                            info.ping = data.readInt64(false);
+                            info.availableCheckTime = data.readInt64(false);
+
+                            proxyList.add(0, info);
+                            if (currentProxy == null && !TextUtils.isEmpty(proxyAddress)) {
+                                if (proxyAddress.equals(info.address) && proxyPort == info.port && proxyUsername.equals(info.username) && proxyPassword.equals(info.password)) {
+                                    currentProxy = info;
+                                }
+                            }
+                        }
+                    } else {
+                        FileLog.e("Unknown proxy schema version: " + version);
+                    }
+                } else {
+                    for (int a = 0; a < count; a++) {
                         ProxyInfo info = new ProxyInfo(
                                 data.readString(false),
                                 data.readInt32(false),
                                 data.readString(false),
                                 data.readString(false),
                                 data.readString(false));
-
-                        info.ping = data.readInt64(false);
-                        info.availableCheckTime = data.readInt64(false);
-
                         proxyList.add(0, info);
                         if (currentProxy == null && !TextUtils.isEmpty(proxyAddress)) {
                             if (proxyAddress.equals(info.address) && proxyPort == info.port && proxyUsername.equals(info.username) && proxyPassword.equals(info.password)) {
@@ -1177,30 +1203,13 @@ public class SharedConfig {
                             }
                         }
                     }
-                } else {
-                    FileLog.e("Unknown proxy schema version: " + version);
                 }
-            } else {
-                for (int a = 0; a < count; a++) {
-                    ProxyInfo info = new ProxyInfo(
-                            data.readString(false),
-                            data.readInt32(false),
-                            data.readString(false),
-                            data.readString(false),
-                            data.readString(false));
-                    proxyList.add(0, info);
-                    if (currentProxy == null && !TextUtils.isEmpty(proxyAddress)) {
-                        if (proxyAddress.equals(info.address) && proxyPort == info.port && proxyUsername.equals(info.username) && proxyPassword.equals(info.password)) {
-                            currentProxy = info;
-                        }
-                    }
-                }
+                data.cleanup();
             }
-            data.cleanup();
-        }
-        if (currentProxy == null && !TextUtils.isEmpty(proxyAddress)) {
-            ProxyInfo info = currentProxy = new ProxyInfo(proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret);
-            proxyList.add(0, info);
+            if (currentProxy == null && !TextUtils.isEmpty(proxyAddress)) {
+                ProxyInfo info = currentProxy = new ProxyInfo(proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret);
+                proxyList.add(0, info);
+            }
         }
     }
 

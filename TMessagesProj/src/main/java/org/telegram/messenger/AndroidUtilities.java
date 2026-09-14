@@ -1555,20 +1555,25 @@ public class AndroidUtilities {
 
     public static ArrayList<TLRPC.User> loadVCardFromStream(Uri uri, int currentAccount, boolean asset, ArrayList<VcardItem> items, String name) {
         ArrayList<TLRPC.User> result = null;
+        AssetFileDescriptor fd = null;
+        InputStream stream = null;
+        BufferedReader bufferedReader = null;
         try {
-            InputStream stream;
             if (asset) {
-                AssetFileDescriptor fd = ApplicationLoader.applicationContext.getContentResolver().openAssetFileDescriptor(uri, "r");
-                stream = fd.createInputStream();
+                fd = ApplicationLoader.applicationContext.getContentResolver().openAssetFileDescriptor(uri, "r");
+                stream = fd != null ? fd.createInputStream() : null;
             } else {
                 ContentResolver cr = ApplicationLoader.applicationContext.getContentResolver();
                 stream = cr.openInputStream(uri);
+            }
+            if (stream == null) {
+                return null;
             }
 
             ArrayList<VcardData> vcardDatas = new ArrayList<>();
             VcardData currentData = null;
 
-            BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
+            bufferedReader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
             String line;
             String originalLine;
             StringBuilder pendingLine = null;
@@ -1690,12 +1695,6 @@ public class AndroidUtilities {
                     currentData.phones.add(args[1]);
                 }
             }
-            try {
-                bufferedReader.close();
-                stream.close();
-            } catch (Exception e) {
-                FileLog.e(e);
-            }
             for (int a = 0; a < vcardDatas.size(); a++) {
                 VcardData vcardData = vcardDatas.get(a);
                 if (vcardData.name != null && !vcardData.phones.isEmpty()) {
@@ -1727,6 +1726,28 @@ public class AndroidUtilities {
             }
         } catch (Throwable e) {
             FileLog.e(e);
+        } finally {
+            try {
+                if (bufferedReader != null) {
+                    bufferedReader.close();
+                }
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+            try {
+                if (stream != null) {
+                    stream.close();
+                }
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+            try {
+                if (fd != null) {
+                    fd.close();
+                }
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
         }
         return result;
     }
@@ -3318,13 +3339,14 @@ public class AndroidUtilities {
     }
 
     public static boolean copyFile(InputStream sourceFile, OutputStream out) throws IOException {
-        byte[] buf = new byte[4096];
-        int len;
-        while ((len = sourceFile.read(buf)) > 0) {
-            Thread.yield();
-            out.write(buf, 0, len);
+        try (InputStream in = sourceFile; OutputStream o = out) {
+            byte[] buf = new byte[4096];
+            int len;
+            while ((len = in.read(buf)) > 0) {
+                Thread.yield();
+                o.write(buf, 0, len);
+            }
         }
-        out.close();
         return true;
     }
 

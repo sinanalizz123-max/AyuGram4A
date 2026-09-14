@@ -18,21 +18,41 @@ import org.telegram.ui.Components.LayoutHelper;
 public class LockAnimationView extends LinearLayout {
     private float yAdd = 0;
     private boolean isLocked = false;
+    private ImageView imageView;
 
     public LockAnimationView(Context context) {
         super(context);
         setGravity(Gravity.CENTER_HORIZONTAL);
-        ImageView imageView = new ImageView(context) {
+        imageView = new ImageView(context) {
             float idleProgress;
             boolean incIdle;
             private final int lockColor = Theme.getColor(Theme.key_chat_messagePanelVoiceLock);
             private final int backgroundLockColor = Theme.getColor(Theme.key_chat_messagePanelVoiceLockBackground);
+            private final Paint lockOutlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            private final Paint backgroundCircle = new Paint(Paint.ANTI_ALIAS_FLAG);
+            private final RectF rectF = new RectF();
+            private final RectF rectF2 = new RectF();
+            private final Path clipPath = new Path();
+            private boolean detached;
+
+            @Override
+            protected void onAttachedToWindow() {
+                super.onAttachedToWindow();
+                detached = false;
+                invalidate();
+            }
+
+            @Override
+            protected void onDetachedFromWindow() {
+                detached = true;
+                super.onDetachedFromWindow();
+            }
 
             @SuppressLint("DrawAllocation")
             @Override
             protected void onDraw(Canvas canvas) {
                 super.onDraw(canvas);
-                int mHeight = getMeasuredHeight();
+                int mHeight = Math.max(0, getMeasuredHeight());
                 if (incIdle) {
                     idleProgress += 0.03f;
                     if (idleProgress > 1f) {
@@ -49,15 +69,23 @@ public class LockAnimationView extends LinearLayout {
                 if (isLocked) {
                     if (yAdd >= 0) {
                         yAdd -= 0.2f;
+                        if (yAdd < 0) {
+                            yAdd = 0;
+                        }
+                    }
+                } else {
+                    if (yAdd < 0) {
+                        yAdd = 0;
+                    } else if (yAdd > 1) {
+                        yAdd = 1;
                     }
                 }
 
-                Paint lockOutlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
                 lockOutlinePaint.setStyle(Paint.Style.STROKE);
                 lockOutlinePaint.setStrokeCap(Paint.Cap.ROUND);
                 lockOutlinePaint.setColor(lockColor);
 
-                Paint backgroundCircle = new Paint(Paint.ANTI_ALIAS_FLAG);
+                backgroundCircle.setStyle(Paint.Style.FILL);
                 backgroundCircle.setColor(backgroundLockColor);
 
                 // SIZES
@@ -65,9 +93,10 @@ public class LockAnimationView extends LinearLayout {
                 int sizeCircleBackground = Math.round(((sizeLock >> 1) * 150f) / 100f);
                 int sizeLockPart = Math.round(((sizeLock - ((sizeLock * 40f) / 100f)) / 150f) * 100f);
                 float strokeWidth = (sizeLockPart * 18.18f) / 100f;
-                int heightWithLock = Math.round(mHeight - sizeLock - strokeWidth - (sizeCircleBackground - sizeLock));
+                int heightWithLock = Math.max(0, Math.round(mHeight - sizeLock - strokeWidth - (sizeCircleBackground - sizeLock)));
                 //ANIMATION
-                float moveProgress = 1.0f - yAdd;
+                float clampedY = Math.max(0f, Math.min(1f, yAdd));
+                float moveProgress = 1.0f - clampedY;
                 float lockRotation = 9 * (1f - moveProgress);
                 // SIZES
                 lockOutlinePaint.setStrokeWidth(strokeWidth);
@@ -78,7 +107,6 @@ public class LockAnimationView extends LinearLayout {
                 int cx = (getMeasuredWidth() >> 1) - (sizeLockPart >> 1);
                 int circleY = Math.round(heightWithLock + ((sizeLock + strokeWidth) / 2f));
 
-                RectF rectF = new RectF();
                 rectF.set(
                         cx,
                         heightWithLock,
@@ -86,14 +114,14 @@ public class LockAnimationView extends LinearLayout {
                         heightWithLock + sizeLockPart
                 );
                 canvas.save();
-                canvas.saveLayerAlpha(0, 0, getWidth(), getHeight(), isLocked ? Math.round(255 * yAdd) : 255, Canvas.ALL_SAVE_FLAG);
+                int alpha = isLocked ? Math.max(0, Math.min(255, Math.round(255 * clampedY))) : 255;
+                canvas.saveLayerAlpha(0, 0, getWidth(), getHeight(), alpha, Canvas.ALL_SAVE_FLAG);
                 canvas.translate(0, -(AndroidUtilities.dpf2(50) / 2f - idleProgress * AndroidUtilities.dpf2(3f)));
                 canvas.save();
                 int startCy = Math.round(rectF.bottom);
                 int sizeLockBottom = (sizeLockPart * 150) / 100;
                 int sizeCircle = ((sizeLockBottom * 25) / 100) >> 1;
                 int cx2 = (getMeasuredWidth() >> 1) - (sizeLockBottom >> 1);
-                RectF rectF2 = new RectF();
                 rectF2.set(
                         cx2,
                         startCy,
@@ -103,8 +131,8 @@ public class LockAnimationView extends LinearLayout {
                 canvas.translate(0, Math.max(-((heightWithLock - sizeLock) * (1f - moveProgress)), -(heightWithLock - sizeLock - AndroidUtilities.dpf2(6f))));
                 canvas.rotate(lockRotation, rectF2.centerX(), rectF2.centerY());
                 canvas.drawCircle(getMeasuredWidth() >> 1, circleY, sizeCircleBackground, backgroundCircle);
-                Path clipPath = new Path();
-                clipPath.addCircle(rectF2.centerX(), rectF2.centerY(), sizeCircle, Path.Direction.CW);
+                clipPath.reset();
+                clipPath.addCircle(rectF2.centerX(), rectF2.centerY(), Math.max(0, sizeCircle), Path.Direction.CW);
                 canvas.clipPath(clipPath, Region.Op.DIFFERENCE);
                 for (int i = 0; i < 2; i++) {
                     canvas.drawRoundRect(rectF2, radius, radius, lockOutlinePaint);
@@ -132,14 +160,29 @@ public class LockAnimationView extends LinearLayout {
                 canvas.restore();
                 canvas.restore();
                 canvas.restore();
-                invalidate();
+                if (!detached) {
+                    invalidate();
+                }
             }
         };
         addView(imageView, LayoutHelper.createLinear(AndroidUtilities.dp(50), LayoutHelper.MATCH_PARENT));
     }
 
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        if (imageView != null) {
+            imageView.animate().cancel();
+        }
+    }
+
     public void setCurrentMove(float value) {
         if (!isLocked) {
+            if (value < 0) {
+                value = 0;
+            } else if (value > 1) {
+                value = 1;
+            }
             yAdd = value;
         }
     }

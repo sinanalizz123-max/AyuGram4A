@@ -36,10 +36,21 @@ public class TranslateBeforeSendWrapper extends ActionBarMenuSubItem {
         setItemHeight(56);
         setOnClickListener(v -> onClick());
         setRightIcon(R.drawable.msg_arrowright);
-        getRightIcon().setOnClickListener(v -> PopupUtils.showDialog(ExteraConfig.supportedLanguages, LocaleController.getString("Language", R.string.Language), Arrays.asList(ExteraConfig.supportedLanguages).indexOf(ExteraConfig.targetLanguage), context, i -> {
-            ExteraConfig.editor.putString("targetLanguage", ExteraConfig.targetLanguage = (String) ExteraConfig.supportedLanguages[i]).apply();
-            setSubtext(ExteraConfig.getCurrentLangName());
-        }));
+        if (getRightIcon() != null) {
+            getRightIcon().setOnClickListener(v -> {
+                int selected = ExteraConfig.supportedLanguages != null ? Arrays.asList(ExteraConfig.supportedLanguages).indexOf(ExteraConfig.targetLanguage) : -1;
+                if (selected < 0) {
+                    selected = 0;
+                }
+                PopupUtils.showDialog(ExteraConfig.supportedLanguages, LocaleController.getString("Language", R.string.Language), selected, context, i -> {
+                    if (ExteraConfig.supportedLanguages == null || i < 0 || i >= ExteraConfig.supportedLanguages.length) {
+                        return;
+                    }
+                    ExteraConfig.editor.putString("targetLanguage", ExteraConfig.targetLanguage = (String) ExteraConfig.supportedLanguages[i]).apply();
+                    setSubtext(ExteraConfig.getCurrentLangName());
+                });
+            });
+        }
     }
 
     protected void onClick() {

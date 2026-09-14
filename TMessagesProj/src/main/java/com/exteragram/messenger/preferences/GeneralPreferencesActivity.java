@@ -27,12 +27,15 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.exteragram.messenger.ExteraConfig;
 import com.exteragram.messenger.camera.CameraXUtils;
 import com.exteragram.messenger.preferences.components.CameraTypeSelector;
+import com.exteragram.messenger.utils.AyuDownloadEngine;
 import com.exteragram.messenger.utils.LocaleUtils;
 import com.exteragram.messenger.utils.PopupUtils;
+import com.radolyn.ayugram.download.AyuDownloadSpeedTest;
 
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.R;
+import org.telegram.ui.ActionBar.AlertDialog;
 import org.telegram.ui.ActionBar.Theme;
 import org.telegram.ui.Cells.HeaderCell;
 import org.telegram.ui.Cells.TextCheckCell;
@@ -42,10 +45,8 @@ import org.telegram.ui.Components.RecyclerListView;
 import org.telegram.ui.Components.SlideChooseView;
 
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.Collections;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class GeneralPreferencesActivity extends BasePreferencesActivity {
 
@@ -69,6 +70,20 @@ public class GeneralPreferencesActivity extends BasePreferencesActivity {
     private int downloadSpeedChooserRow;
     private int uploadSpeedBoostRow;
     private int speedBoostersDividerRow;
+
+    private int dlAccelHeaderRow;
+    private int dlEnabledRow;
+    private int dlModeRow;
+    private int dlWifiRow;
+    private int dlMobileRow;
+    private int dlMaxSimRow;
+    private int dlPerFileRow;
+    private int dlTotalRow;
+    private int dlSpeedTestRow;
+    private int dlHintRow;
+
+    private AyuDownloadSpeedTest activeSpeedTest;
+    private AlertDialog speedTestDialog;
 
     private int generalHeaderRow;
     private int formatTimeWithSecondsRow;
@@ -117,6 +132,22 @@ public class GeneralPreferencesActivity extends BasePreferencesActivity {
         uploadSpeedBoostRow = newRow();
         speedBoostersDividerRow = newRow();
 
+        dlAccelHeaderRow = newRow();
+        dlEnabledRow = newRow();
+        dlModeRow = newRow();
+        dlWifiRow = newRow();
+        dlMobileRow = newRow();
+        dlMaxSimRow = -1;
+        dlPerFileRow = -1;
+        dlTotalRow = -1;
+        if (AyuDownloadEngine.getMode() == AyuDownloadEngine.MODE_CUSTOM) {
+            dlMaxSimRow = newRow();
+            dlPerFileRow = newRow();
+            dlTotalRow = newRow();
+        }
+        dlSpeedTestRow = newRow();
+        dlHintRow = newRow();
+
         profileHeaderRow = newRow();
         hidePhoneNumberRow = newRow();
         showIdAndDcRow = newRow();
@@ -143,7 +174,8 @@ public class GeneralPreferencesActivity extends BasePreferencesActivity {
             if (getParentActivity() == null) {
                 return;
             }
-            PopupUtils.showDialog(tabletMode, LocaleController.getString("TabletMode", R.string.TabletMode), ExteraConfig.tabletMode, getContext(), i -> {
+            int tabletSelected = ExteraConfig.tabletMode >= 0 && ExteraConfig.tabletMode < tabletMode.length ? ExteraConfig.tabletMode : 0;
+            PopupUtils.showDialog(tabletMode, LocaleController.getString("TabletMode", R.string.TabletMode), tabletSelected, getContext(), i -> {
                 ExteraConfig.editor.putInt("tabletMode", ExteraConfig.tabletMode = i).apply();
                 listAdapter.notifyItemChanged(tabletModeRow, payload);
                 showBulletin();
@@ -163,7 +195,8 @@ public class GeneralPreferencesActivity extends BasePreferencesActivity {
             if (getParentActivity() == null) {
                 return;
             }
-            PopupUtils.showDialog(id, LocaleController.getString("ShowIdAndDc", R.string.ShowIdAndDc), ExteraConfig.showIdAndDc, getContext(), i -> {
+            int idSelected = ExteraConfig.showIdAndDc >= 0 && ExteraConfig.showIdAndDc < id.length ? ExteraConfig.showIdAndDc : 0;
+            PopupUtils.showDialog(id, LocaleController.getString("ShowIdAndDc", R.string.ShowIdAndDc), idSelected, getContext(), i -> {
                 ExteraConfig.editor.putInt("showIdAndDc", ExteraConfig.showIdAndDc = i).apply();
                 parentLayout.rebuildAllFragmentViews(false, false);
                 listAdapter.notifyItemChanged(showIdAndDcRow, payload);
@@ -172,19 +205,203 @@ public class GeneralPreferencesActivity extends BasePreferencesActivity {
         } else if (position == uploadSpeedBoostRow) {
             ExteraConfig.editor.putBoolean("uploadSpeedBoost", ExteraConfig.uploadSpeedBoost ^= true).apply();
             ((TextCheckCell) view).setChecked(ExteraConfig.uploadSpeedBoost);
+        } else if (position == dlEnabledRow) {
+            AyuDownloadEngine.setEnabled(!AyuDownloadEngine.isEnabled());
+            ((TextCheckCell) view).setChecked(AyuDownloadEngine.isEnabled());
+        } else if (position == dlModeRow) {
+            if (getParentActivity() == null) {
+                return;
+            }
+            PopupUtils.showDialog(AyuDownloadSpeedTest.MODE_NAMES, "Download Acceleration", AyuDownloadEngine.getMode(), getContext(), i -> {
+                if (i < 0 || i >= AyuDownloadSpeedTest.MODE_NAMES.length) {
+                    return;
+                }
+                AyuDownloadEngine.setMode(i);
+                refreshDlCustomRows();
+                if (listAdapter != null) {
+                    listAdapter.notifyItemChanged(dlModeRow, payload);
+                }
+            });
+        } else if (position == dlWifiRow) {
+            AyuDownloadEngine.setWifiAcceleration(!AyuDownloadEngine.isWifiAcceleration());
+            ((TextCheckCell) view).setChecked(AyuDownloadEngine.isWifiAcceleration());
+        } else if (position == dlMobileRow) {
+            AyuDownloadEngine.setMobileAcceleration(!AyuDownloadEngine.isMobileAcceleration());
+            ((TextCheckCell) view).setChecked(AyuDownloadEngine.isMobileAcceleration());
+        } else if (position == dlMaxSimRow) {
+            if (getParentActivity() == null) {
+                return;
+            }
+            PopupUtils.showDialog(numberItems(1, 8), "Max Simultaneous", Math.min(7, Math.max(0, AyuDownloadEngine.getCustomMaxSimultaneous() - 1)), getContext(), i -> {
+                AyuDownloadEngine.setCustomMaxSimultaneous(1 + i);
+                if (listAdapter != null) {
+                    listAdapter.notifyItemChanged(dlMaxSimRow, payload);
+                }
+            });
+        } else if (position == dlPerFileRow) {
+            if (getParentActivity() == null) {
+                return;
+            }
+            PopupUtils.showDialog(numberItems(2, 16), "Connections Per File", Math.min(14, Math.max(0, AyuDownloadEngine.getCustomConnectionsPerDownload() - 2)), getContext(), i -> {
+                AyuDownloadEngine.setCustomConnectionsPerDownload(2 + i);
+                if (listAdapter != null) {
+                    listAdapter.notifyItemChanged(dlPerFileRow, payload);
+                }
+            });
+        } else if (position == dlTotalRow) {
+            if (getParentActivity() == null) {
+                return;
+            }
+            PopupUtils.showDialog(numberItems(4, 32), "Total Connections", Math.min(28, Math.max(0, AyuDownloadEngine.getCustomMaxTotalConnections() - 4)), getContext(), i -> {
+                AyuDownloadEngine.setCustomMaxTotalConnections(4 + i);
+                if (listAdapter != null) {
+                    listAdapter.notifyItemChanged(dlTotalRow, payload);
+                }
+            });
+        } else if (position == dlSpeedTestRow) {
+            runSpeedTest();
         } else if (position == cameraXOptimizeRow) {
             ExteraConfig.editor.putBoolean("useCameraXOptimizedMode", ExteraConfig.useCameraXOptimizedMode ^= true).apply();
             ((TextCheckCell) view).setChecked(ExteraConfig.useCameraXOptimizedMode);
         } else if (position == cameraXQualityRow) {
             Map<Quality, Size> availableSizes = CameraXUtils.getAvailableVideoSizes();
-            Stream<Integer> tmp = availableSizes.values().stream().sorted(Comparator.comparingInt(Size::getWidth).reversed()).map(Size::getHeight);
-            ArrayList<Integer> types = tmp.collect(Collectors.toCollection(ArrayList::new));
-            ArrayList<String> arrayList = types.stream().map(p -> p + "p").collect(Collectors.toCollection(ArrayList::new));
-            PopupUtils.showDialog(arrayList, LocaleController.getString("CameraQuality", R.string.CameraQuality), types.indexOf(ExteraConfig.cameraResolution), getContext(), i -> {
+            if (availableSizes == null || availableSizes.isEmpty()) {
+                return;
+            }
+            ArrayList<Integer> types = new ArrayList<>();
+            for (Size s : availableSizes.values()) {
+                if (s != null) {
+                    types.add(s.getHeight());
+                }
+            }
+            if (types.isEmpty()) {
+                return;
+            }
+            Collections.sort(types, Collections.reverseOrder());
+            ArrayList<String> arrayList = new ArrayList<>(types.size());
+            for (Integer p : types) {
+                arrayList.add(p + "p");
+            }
+            int selected = types.indexOf(ExteraConfig.cameraResolution);
+            if (selected < 0) {
+                selected = 0;
+            }
+            PopupUtils.showDialog(arrayList, LocaleController.getString("CameraQuality", R.string.CameraQuality), selected, getContext(), i -> {
+                if (i < 0 || i >= types.size()) {
+                    return;
+                }
                 ExteraConfig.editor.putInt("cameraResolution", ExteraConfig.cameraResolution = types.get(i)).apply();
                 listAdapter.notifyItemChanged(cameraXQualityRow, payload);
             });
         }
+    }
+
+    private static CharSequence[] numberItems(int min, int max) {
+        if (max < min) {
+            return new CharSequence[]{"0"};
+        }
+        CharSequence[] items = new CharSequence[max - min + 1];
+        for (int i = min; i <= max; i++) {
+            items[i - min] = String.valueOf(i);
+        }
+        return items;
+    }
+
+    private void refreshDlCustomRows() {
+        boolean wantCustom = AyuDownloadEngine.getMode() == AyuDownloadEngine.MODE_CUSTOM;
+        boolean hasCustom = dlMaxSimRow != -1;
+        if (wantCustom == hasCustom || listAdapter == null) {
+            if (listAdapter == null) {
+                updateRowsId();
+            }
+            return;
+        }
+        if (wantCustom) {
+            updateRowsId();
+            if (dlMaxSimRow != -1) {
+                listAdapter.notifyItemRangeInserted(dlMaxSimRow, 3);
+            }
+        } else {
+            int oldRow = dlMaxSimRow;
+            updateRowsId();
+            if (oldRow != -1) {
+                listAdapter.notifyItemRangeRemoved(oldRow, 3);
+            }
+        }
+    }
+
+    private void runSpeedTest() {
+        if (getParentActivity() == null || activeSpeedTest != null) {
+            return;
+        }
+        AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
+        builder.setTitle("Speed Test");
+        builder.setMessage("Starting...");
+        builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), (dialog, which) -> cancelSpeedTest());
+        builder.setOnCancelListener(dialog -> cancelSpeedTest());
+        speedTestDialog = builder.show();
+        AyuDownloadSpeedTest test = new AyuDownloadSpeedTest(AyuDownloadSpeedTest.resolveAccount(currentAccount));
+        activeSpeedTest = test;
+        test.start(new AyuDownloadSpeedTest.Listener() {
+            @Override
+            public void onProgress(String status) {
+                if (speedTestDialog != null && status != null) {
+                    try {
+                        speedTestDialog.setMessage(status);
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+
+            @Override
+            public void onFinished(AyuDownloadSpeedTest.Result result) {
+                if (activeSpeedTest != test) {
+                    return;
+                }
+                activeSpeedTest = null;
+                try {
+                    if (speedTestDialog != null) {
+                        speedTestDialog.dismiss();
+                    }
+                } catch (Exception ignored) {
+                }
+                speedTestDialog = null;
+                if (getParentActivity() == null || result == null) {
+                    return;
+                }
+                AlertDialog.Builder resultBuilder = new AlertDialog.Builder(getParentActivity());
+                resultBuilder.setTitle("Speed Test");
+                resultBuilder.setMessage(AyuDownloadSpeedTest.buildResultText(result));
+                resultBuilder.setPositiveButton(LocaleController.getString("OK", R.string.OK), null);
+                try {
+                    resultBuilder.show();
+                } catch (Exception ignored) {
+                }
+            }
+        });
+    }
+
+    private void cancelSpeedTest() {
+        if (activeSpeedTest != null) {
+            try {
+                activeSpeedTest.cancel();
+            } catch (Exception ignored) {
+            }
+            activeSpeedTest = null;
+        }
+        if (speedTestDialog != null) {
+            try {
+                speedTestDialog.dismiss();
+            } catch (Exception ignored) {
+            }
+            speedTestDialog = null;
+        }
+    }
+
+    @Override
+    public void onFragmentDestroy() {
+        cancelSpeedTest();
+        super.onFragmentDestroy();
     }
 
     @Override
@@ -218,14 +435,25 @@ public class GeneralPreferencesActivity extends BasePreferencesActivity {
                         super.onSelectedCamera(cameraSelected);
                         int oldValue = ExteraConfig.cameraType;
                         ExteraConfig.editor.putInt("cameraType", ExteraConfig.cameraType = cameraSelected).apply();
-                        if (cameraSelected == 1) {
+                        if (listAdapter == null) {
                             updateRowsId();
-                            listAdapter.notifyItemRangeInserted(cameraXOptimizeRow, 2);
-                            listAdapter.notifyItemChanged(cameraTypeDividerRow);
+                        } else if (cameraSelected == 1) {
+                            updateRowsId();
+                            if (cameraXOptimizeRow != -1) {
+                                listAdapter.notifyItemRangeInserted(cameraXOptimizeRow, 2);
+                            }
+                            if (cameraTypeDividerRow != -1) {
+                                listAdapter.notifyItemChanged(cameraTypeDividerRow);
+                            }
                         } else if (oldValue == 1) {
-                            listAdapter.notifyItemRangeRemoved(cameraXOptimizeRow, 2);
-                            listAdapter.notifyItemChanged(cameraTypeDividerRow - 2);
+                            int oldOptimizeRow = cameraXOptimizeRow;
                             updateRowsId();
+                            if (oldOptimizeRow != -1) {
+                                listAdapter.notifyItemRangeRemoved(oldOptimizeRow, 2);
+                            }
+                            if (cameraTypeDividerRow != -1) {
+                                listAdapter.notifyItemChanged(cameraTypeDividerRow);
+                            }
                         } else {
                             listAdapter.notifyItemChanged(cameraTypeDividerRow);
                         }
@@ -253,6 +481,8 @@ public class GeneralPreferencesActivity extends BasePreferencesActivity {
                         headerCell.setText(LocaleController.getString("Profile", R.string.Profile));
                     } else if (position == speedBoostersHeaderRow) {
                         headerCell.setText(LocaleController.getString("DownloadSpeedBoost", R.string.DownloadSpeedBoost));
+                    } else if (position == dlAccelHeaderRow) {
+                        headerCell.setText("Download Acceleration");
                     } else if (position == cameraTypeHeaderRow) {
                         headerCell.setText(LocaleController.getString("CameraType", R.string.CameraType));
                     }
@@ -272,6 +502,12 @@ public class GeneralPreferencesActivity extends BasePreferencesActivity {
                         textCheckCell.setTextAndCheck(LocaleController.getString("HidePhoneNumber", R.string.HidePhoneNumber), ExteraConfig.hidePhoneNumber, true);
                     } else if (position == uploadSpeedBoostRow) {
                         textCheckCell.setTextAndCheck(LocaleController.getString("UploadSpeedBoost", R.string.UploadSpeedBoost), ExteraConfig.uploadSpeedBoost, false);
+                    } else if (position == dlWifiRow) {
+                        textCheckCell.setTextAndCheck("Accelerate on Wi-Fi", AyuDownloadEngine.isWifiAcceleration(), true);
+                    } else if (position == dlMobileRow) {
+                        textCheckCell.setTextAndCheck("Accelerate on Mobile Data", AyuDownloadEngine.isMobileAcceleration(), false);
+                    } else if (position == dlEnabledRow) {
+                        textCheckCell.setTextAndCheck("Enable Acceleration", AyuDownloadEngine.isEnabled(), true);
                     } else if (position == cameraXOptimizeRow) {
                         textCheckCell.setTextAndValueAndCheck(LocaleController.getString("PerformanceMode", R.string.PerformanceMode), LocaleController.getString("PerformanceModeInfo", R.string.PerformanceModeInfo), ExteraConfig.useCameraXOptimizedMode, true, true);
                     }
@@ -281,9 +517,21 @@ public class GeneralPreferencesActivity extends BasePreferencesActivity {
                     if (position == cameraXQualityRow) {
                         textSettingsCell.setTextAndValue(LocaleController.getString("CameraQuality", R.string.CameraQuality), ExteraConfig.cameraResolution + "p", payload, false);
                     } else if (position == tabletModeRow) {
-                        textSettingsCell.setTextAndValue(LocaleController.getString("TabletMode", R.string.TabletMode), tabletMode[ExteraConfig.tabletMode], payload, false);
+                        int tabletIdx = ExteraConfig.tabletMode >= 0 && ExteraConfig.tabletMode < tabletMode.length ? ExteraConfig.tabletMode : 0;
+                        textSettingsCell.setTextAndValue(LocaleController.getString("TabletMode", R.string.TabletMode), tabletMode[tabletIdx], payload, false);
                     } else if (position == showIdAndDcRow) {
-                        textSettingsCell.setTextAndValue(LocaleController.getString("ShowIdAndDc", R.string.ShowIdAndDc), id[ExteraConfig.showIdAndDc], payload, false);
+                        int idIdx = ExteraConfig.showIdAndDc >= 0 && ExteraConfig.showIdAndDc < id.length ? ExteraConfig.showIdAndDc : 0;
+                        textSettingsCell.setTextAndValue(LocaleController.getString("ShowIdAndDc", R.string.ShowIdAndDc), id[idIdx], payload, false);
+                    } else if (position == dlModeRow) {
+                        textSettingsCell.setTextAndValue("Mode", AyuDownloadSpeedTest.getModeName(AyuDownloadEngine.getMode()), payload, true);
+                    } else if (position == dlMaxSimRow) {
+                        textSettingsCell.setTextAndValue("Max Simultaneous", String.valueOf(AyuDownloadEngine.getCustomMaxSimultaneous()), payload, true);
+                    } else if (position == dlPerFileRow) {
+                        textSettingsCell.setTextAndValue("Connections Per File", String.valueOf(AyuDownloadEngine.getCustomConnectionsPerDownload()), payload, true);
+                    } else if (position == dlTotalRow) {
+                        textSettingsCell.setTextAndValue("Total Connections", String.valueOf(AyuDownloadEngine.getCustomMaxTotalConnections()), payload, true);
+                    } else if (position == dlSpeedTestRow) {
+                        textSettingsCell.setTextAndValue("Speed Test", "Run", payload, false);
                     }
                     break;
                 case 8:
@@ -311,6 +559,8 @@ public class GeneralPreferencesActivity extends BasePreferencesActivity {
                         textInfoPrivacyCell.setText(LocaleUtils.formatWithURLs(htmlParsed));
                     } else if (position == speedBoostersDividerRow) {
                         textInfoPrivacyCell.setText(LocaleController.getString("SpeedBoostInfo", R.string.SpeedBoostInfo));
+                    } else if (position == dlHintRow) {
+                        textInfoPrivacyCell.setText("Custom limits apply in Custom mode. While acceleration is active, live speed and peak appear in message details.");
                     } else if (position == profileDividerRow) {
                         textInfoPrivacyCell.setText(LocaleController.getString("ShowIdAndDcInfo", R.string.ShowIdAndDcInfo));
                     } else if (position == archiveDividerRow) {
@@ -333,11 +583,12 @@ public class GeneralPreferencesActivity extends BasePreferencesActivity {
             if (position == generalDividerRow) {
                 return 1;
             } else if (position == generalHeaderRow || position == archiveHeaderRow || position == profileHeaderRow ||
-                    position == speedBoostersHeaderRow || position == cameraTypeHeaderRow) {
+                    position == speedBoostersHeaderRow || position == cameraTypeHeaderRow || position == dlAccelHeaderRow) {
                 return 3;
-            } else if (position == cameraXQualityRow || position == tabletModeRow || position == showIdAndDcRow) {
+            } else if (position == cameraXQualityRow || position == tabletModeRow || position == showIdAndDcRow ||
+                    position == dlModeRow || position == dlMaxSimRow || position == dlPerFileRow || position == dlTotalRow || position == dlSpeedTestRow) {
                 return 7;
-            } else if (position == cameraTypeDividerRow || position == speedBoostersDividerRow || position == profileDividerRow  || position == archiveDividerRow) {
+            } else if (position == cameraTypeDividerRow || position == speedBoostersDividerRow || position == profileDividerRow  || position == archiveDividerRow || position == dlHintRow) {
                 return 8;
             } else if (position == downloadSpeedChooserRow) {
                 return 13;

@@ -14,6 +14,7 @@ package com.exteragram.messenger.preferences;
 import android.content.Context;
 import android.os.CountDownTimer;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -49,6 +50,17 @@ public class OtherPreferencesActivity extends BasePreferencesActivity {
     private int deleteAccountRow;
     private int resetSettingsRow;
     private int deleteAccountDividerRow;
+
+    private CountDownTimer deleteAccountTimer;
+
+    @Override
+    public void onFragmentDestroy() {
+        super.onFragmentDestroy();
+        if (deleteAccountTimer != null) {
+            deleteAccountTimer.cancel();
+            deleteAccountTimer = null;
+        }
+    }
 
     @Override
     protected void updateRowsId() {
@@ -87,14 +99,24 @@ public class OtherPreferencesActivity extends BasePreferencesActivity {
             getNotificationCenter().postNotificationName(NotificationCenter.mainUserInfoChanged);
             getNotificationCenter().postNotificationName(NotificationCenter.dialogFiltersUpdated);
             LocaleController.getInstance().recreateFormatters();
-            ((LaunchActivity) getParentActivity()).reloadIcons();
-            Theme.reloadAllResources(getParentActivity());
+            if (getParentActivity() instanceof LaunchActivity) {
+                ((LaunchActivity) getParentActivity()).reloadIcons();
+            }
+            if (getParentActivity() != null) {
+                Theme.reloadAllResources(getParentActivity());
+            }
             BulletinFactory.of(this).createErrorBulletin(LocaleController.getString("ResetSettingsBulletin", R.string.ResetSettingsBulletin), resourcesProvider).show();
         } else if (position == deleteAccountRow) {
+            if (getParentActivity() == null) {
+                return;
+            }
             AlertDialog.Builder builder = new AlertDialog.Builder(getParentActivity());
             builder.setMessage(LocaleController.getString("TosDeclineDeleteAccount", R.string.TosDeclineDeleteAccount));
             builder.setTitle(LocaleController.getString("DeleteAccount", R.string.DeleteAccount));
             builder.setPositiveButton(LocaleController.getString("Deactivate", R.string.Deactivate), (dialog, which) -> {
+                if (getParentActivity() == null || isFinishing()) {
+                    return;
+                }
                 final AlertDialog progressDialog = new AlertDialog(getParentActivity(), AlertDialog.ALERT_TYPE_SPINNER);
                 progressDialog.setCanCancel(false);
 
@@ -102,6 +124,14 @@ public class OtherPreferencesActivity extends BasePreferencesActivity {
                     TLRPC.TL_account_deleteAccount req = new TLRPC.TL_account_deleteAccount();
                     req.reason = "ЭКСТЕРАГРАМ";
                     getConnectionsManager().sendRequest(req, (response, error) -> AndroidUtilities.runOnUIThread(() -> {
+                        if (isFinishing() || getParentActivity() == null) {
+                            try {
+                                progressDialog.dismiss();
+                            } catch (Exception e) {
+                                FileLog.e(e);
+                            }
+                            return;
+                        }
                         try {
                             progressDialog.dismiss();
                         } catch (Exception e) {
@@ -114,37 +144,71 @@ public class OtherPreferencesActivity extends BasePreferencesActivity {
                             if (error != null) {
                                 errorText += "\n" + error.text;
                             }
-                            AlertDialog.Builder builder1 = new AlertDialog.Builder(getParentActivity());
-                            builder1.setTitle(LocaleController.getString("AppName", R.string.AppName));
-                            builder1.setMessage(errorText);
-                            builder1.setPositiveButton(LocaleController.getString("OK", R.string.OK), null);
-                            builder1.show();
+                            if (getParentActivity() == null) {
+                                return;
+                            }
+                            try {
+                                AlertDialog.Builder builder1 = new AlertDialog.Builder(getParentActivity());
+                                builder1.setTitle(LocaleController.getString("AppName", R.string.AppName));
+                                builder1.setMessage(errorText);
+                                builder1.setPositiveButton(LocaleController.getString("OK", R.string.OK), null);
+                                builder1.show();
+                            } catch (WindowManager.BadTokenException e) {
+                                FileLog.e(e);
+                            }
                         }
                     }));
                 }, 500);
-                progressDialog.show();
+                try {
+                    progressDialog.show();
+                } catch (WindowManager.BadTokenException e) {
+                    FileLog.e(e);
+                }
             });
             builder.setNegativeButton(LocaleController.getString("Cancel", R.string.Cancel), null);
             AlertDialog dialog = builder.create();
             dialog.setOnShowListener(dialog1 -> {
                 var button = (TextView) dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+                if (button == null) {
+                    return;
+                }
                 button.setTextColor(Theme.getColor(Theme.key_text_RedBold));
                 button.setEnabled(false);
                 var buttonText = button.getText();
-                new CountDownTimer(30000, 100) {
+                if (deleteAccountTimer != null) {
+                    deleteAccountTimer.cancel();
+                }
+                deleteAccountTimer = new CountDownTimer(30000, 100) {
                     @Override
                     public void onTick(long millisUntilFinished) {
+                        if (button == null || isFinishing()) {
+                            return;
+                        }
                         button.setText(String.format(Locale.getDefault(), "%s (%d)", buttonText, millisUntilFinished / 1000 + 1));
                     }
 
                     @Override
                     public void onFinish() {
+                        deleteAccountTimer = null;
+                        if (button == null || isFinishing()) {
+                            return;
+                        }
                         button.setText(buttonText);
                         button.setEnabled(true);
                     }
                 }.start();
             });
-            showDialog(dialog);
+            dialog.setOnDismissListener(d -> {
+                if (deleteAccountTimer != null) {
+                    deleteAccountTimer.cancel();
+                    deleteAccountTimer = null;
+                }
+            });
+            try {
+                showDialog(dialog);
+            } catch (WindowManager.BadTokenException e) {
+                FileLog.e(e);
+            }
         }
     }
 

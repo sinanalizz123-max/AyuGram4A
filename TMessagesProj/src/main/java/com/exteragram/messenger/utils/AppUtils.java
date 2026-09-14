@@ -88,12 +88,20 @@ public class AppUtils {
 
     public static boolean isAppModified() {
         try {
+            if (ApplicationLoader.applicationContext == null) {
+                return true;
+            }
             @SuppressLint("PackageManagerGetSignatures")
             PackageInfo packageInfo = ApplicationLoader.applicationContext.getPackageManager()
                     .getPackageInfo(ApplicationLoader.applicationContext.getPackageName(), PackageManager.GET_SIGNATURES);
-
+            if (packageInfo == null) {
+                return true;
+            }
             String currentPackageName = packageInfo.packageName;
 
+            if (packageInfo.signatures == null || packageInfo.signatures.length == 0 || packageInfo.signatures[0] == null) {
+                return true;
+            }
             Signature signature = packageInfo.signatures[0];
 
             MessageDigest md = MessageDigest.getInstance("MD5");

@@ -65,6 +65,23 @@ public class TranslatorUtils {
 
     public static void translate(CharSequence text, String toLang, OnTranslationSuccess onSuccess, OnTranslationFail onFail) {
         if (TextUtils.isEmpty(text)) {
+            if (onFail != null) {
+                try {
+                    AndroidUtilities.runOnUIThread(onFail::run);
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+            }
+            return;
+        }
+        if (toLang == null) {
+            if (onFail != null) {
+                try {
+                    AndroidUtilities.runOnUIThread(onFail::run);
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+            }
             return;
         }
         if (LanguageDetector.hasSupport()) {
@@ -85,22 +102,51 @@ public class TranslatorUtils {
 
     public static void translate(CharSequence text, String fromLang, String toLang, OnTranslationSuccess onSuccess, OnTranslationFail onFail) {
         if (TextUtils.isEmpty(text)) {
+            if (onFail != null) {
+                try {
+                    AndroidUtilities.runOnUIThread(onFail::run);
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+            }
+            return;
+        }
+        if (fromLang == null) {
+            fromLang = "auto";
+        }
+        if (toLang == null) {
+            if (onFail != null) {
+                try {
+                    AndroidUtilities.runOnUIThread(onFail::run);
+                } catch (Exception e) {
+                    FileLog.e(e);
+                }
+            }
             return;
         }
         if (!translateQueue.isAlive()) {
-            translateQueue.start();
+            try {
+                translateQueue.start();
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
         }
+        final String fFrom = fromLang;
+        final String fTo = toLang;
+        final CharSequence fText = text;
         translateQueue.postRunnable(() -> {
             String uri;
-            HttpURLConnection connection;
+            HttpURLConnection connection = null;
             try {
                 uri = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=";
-                uri += fromLang + "&tl=";
-                uri += Uri.encode(toLang);
+                uri += fFrom + "&tl=";
+                uri += Uri.encode(fTo);
                 uri += "&dt=t&ie=UTF-8&oe=UTF-8&otf=1&ssel=0&tsel=0&kc=7&dt=at&dt=bd&dt=ex&dt=ld&dt=md&dt=qca&dt=rw&dt=rm&dt=ss&q=";
-                uri += Uri.encode(text.toString());
+                uri += Uri.encode(fText.toString());
                 connection = (HttpURLConnection) new URI(uri).toURL().openConnection();
                 connection.setRequestMethod("GET");
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(15000);
                 connection.setRequestProperty("User-Agent", formatUserAgent());
                 connection.setRequestProperty("Content-Type", "application/json");
 
@@ -118,13 +164,26 @@ public class TranslatorUtils {
                     if (blockText != null && !blockText.equals("null"))
                         result.append(blockText);
                 }
-                if (text.length() > 0 && text.charAt(0) == '\n') result.insert(0, "\n");
+                if (fText.length() > 0 && fText.charAt(0) == '\n') result.insert(0, "\n");
                 if (onSuccess != null)
                     AndroidUtilities.runOnUIThread(() -> onSuccess.run(result.toString()));
             } catch (Exception e) {
-                e.printStackTrace();
-                if (onFail != null)
-                    AndroidUtilities.runOnUIThread(onFail::run);
+                FileLog.e(e);
+                if (onFail != null) {
+                    try {
+                        AndroidUtilities.runOnUIThread(onFail::run);
+                    } catch (Exception e2) {
+                        FileLog.e(e2);
+                    }
+                }
+            } finally {
+                if (connection != null) {
+                    try {
+                        connection.disconnect();
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                    }
+                }
             }
         });
     }

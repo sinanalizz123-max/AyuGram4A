@@ -162,7 +162,9 @@ public class SlideControlView extends View {
                         knobStartX = x;
                         pressed = true;
                     } else if (Math.abs(knobStartX - x) <= AndroidUtilities.dp(10)) {
-                        sliderValue = (x - progressStartX) / (progressEndX - progressStartX);
+                        if (progressEndX != progressStartX) {
+                            sliderValue = (x - progressStartX) / (float) (progressEndX - progressStartX);
+                        }
                         if (delegate != null) {
                             delegate.didSlide(sliderValue);
                         }
@@ -176,7 +178,9 @@ public class SlideControlView extends View {
                         knobStartY = y;
                         pressed = true;
                     } else if (Math.abs(knobStartY - y) <= AndroidUtilities.dp(10)) {
-                        sliderValue = (y - progressStartY) / (progressEndY - progressStartY);
+                        if (progressEndY != progressStartY) {
+                            sliderValue = (y - progressStartY) / (float) (progressEndY - progressStartY);
+                        }
                         if (delegate != null) {
                             delegate.didSlide(sliderValue);
                         }
@@ -188,9 +192,13 @@ public class SlideControlView extends View {
         } else if (action == MotionEvent.ACTION_MOVE) {
             if (knobPressed) {
                 if (isPortrait) {
-                    sliderValue = ((x + knobStartX) - progressStartX) / (progressEndX - progressStartX);
+                    if (progressEndX != progressStartX) {
+                        sliderValue = ((x - knobStartX) - progressStartX) / (float) (progressEndX - progressStartX);
+                    }
                 } else {
-                    sliderValue = ((y + knobStartY) - progressStartY) / (progressEndY - progressStartY);
+                    if (progressEndY != progressStartY) {
+                        sliderValue = ((y - knobStartY) - progressStartY) / (float) (progressEndY - progressStartY);
+                    }
                 }
                 if (sliderValue < 0) {
                     sliderValue = 0;
@@ -203,7 +211,7 @@ public class SlideControlView extends View {
                 invalidate();
             }
         }
-        if (action == MotionEvent.ACTION_UP) {
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
             pressed = false;
             knobPressed = false;
             invalidate();
@@ -264,16 +272,24 @@ public class SlideControlView extends View {
         }
 
         if (mode == SLIDER_MODE_ZOOM) {
-            minusDrawable.setBounds(minusCx - AndroidUtilities.dp(7), minusCy - AndroidUtilities.dp(7), minusCx + AndroidUtilities.dp(7), minusCy + AndroidUtilities.dp(7));
-            minusDrawable.draw(canvas);
-            plusDrawable.setBounds(plusCx - AndroidUtilities.dp(7), plusCy - AndroidUtilities.dp(7), plusCx + AndroidUtilities.dp(7), plusCy + AndroidUtilities.dp(7));
-            plusDrawable.draw(canvas);
+            if (minusDrawable != null) {
+                minusDrawable.setBounds(minusCx - AndroidUtilities.dp(7), minusCy - AndroidUtilities.dp(7), minusCx + AndroidUtilities.dp(7), minusCy + AndroidUtilities.dp(7));
+                minusDrawable.draw(canvas);
+            }
+            if (plusDrawable != null) {
+                plusDrawable.setBounds(plusCx - AndroidUtilities.dp(7), plusCy - AndroidUtilities.dp(7), plusCx + AndroidUtilities.dp(7), plusCy + AndroidUtilities.dp(7));
+                plusDrawable.draw(canvas);
+            }
         } else if (mode == SLIDER_MODE_EV) {
             //minusDrawable;
-            minusDrawable.setBounds(minusCx - AndroidUtilities.dp(7), minusCy - AndroidUtilities.dp(7), minusCx + AndroidUtilities.dp(7), minusCy + AndroidUtilities.dp(7));
-            minusDrawable.draw(canvas);
-            plusDrawable.setBounds(plusCx - AndroidUtilities.dp(8), plusCy - AndroidUtilities.dp(8), plusCx + AndroidUtilities.dp(8), plusCy + AndroidUtilities.dp(8));
-            plusDrawable.draw(canvas);
+            if (minusDrawable != null) {
+                minusDrawable.setBounds(minusCx - AndroidUtilities.dp(7), minusCy - AndroidUtilities.dp(7), minusCx + AndroidUtilities.dp(7), minusCy + AndroidUtilities.dp(7));
+                minusDrawable.draw(canvas);
+            }
+            if (plusDrawable != null) {
+                plusDrawable.setBounds(plusCx - AndroidUtilities.dp(8), plusCy - AndroidUtilities.dp(8), plusCx + AndroidUtilities.dp(8), plusCy + AndroidUtilities.dp(8));
+                plusDrawable.draw(canvas);
+            }
         }
 
 
@@ -292,15 +308,34 @@ public class SlideControlView extends View {
             canvas.rotate(90);
             canvas.translate(0, -progressStartX - AndroidUtilities.dp(3));
         }
-        progressDrawable.draw(canvas);
-        filledProgressDrawable.draw(canvas);
+        if (progressDrawable != null) {
+            progressDrawable.draw(canvas);
+        }
+        if (filledProgressDrawable != null) {
+            filledProgressDrawable.draw(canvas);
+        }
         if (!isPortrait) {
             canvas.restore();
         }
 
         Drawable drawable = knobPressed ? pressedKnobDrawable : knobDrawable;
+        if (drawable == null) {
+            return;
+        }
         int size = drawable.getIntrinsicWidth();
+        if (size <= 0) {
+            size = AndroidUtilities.dp(14);
+        }
         drawable.setBounds(knobX - size / 2, knobY - size / 2, knobX + size / 2, knobY + size / 2);
         drawable.draw(canvas);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        if (animatorSet != null) {
+            animatorSet.cancel();
+            animatorSet = null;
+        }
+        super.onDetachedFromWindow();
     }
 }

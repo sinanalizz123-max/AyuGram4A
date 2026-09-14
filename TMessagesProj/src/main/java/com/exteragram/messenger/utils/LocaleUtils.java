@@ -32,24 +32,40 @@ import org.telegram.ui.Components.URLSpanNoUnderline;
 
 public class LocaleUtils {
     public static String getActionBarTitle() {
-        String title;
-        int actionBarTitle = ExteraConfig.titleText;
-        switch (actionBarTitle) {
-            case 0:
-                title = LocaleController.getString("exteraAppName", R.string.exteraAppName);
-                break;
-            case 3:
-                title = LocaleController.getString(R.string.FilterChats);
-                break;
-            default:
-                TLRPC.User user = UserConfig.getInstance(UserConfig.selectedAccount).getCurrentUser();
-                title = actionBarTitle == 1 && !TextUtils.isEmpty(UserObject.getPublicUsername(user)) ? UserObject.getPublicUsername(user) : UserObject.getFirstName(user);
-                break;
+        try {
+            String title;
+            int actionBarTitle = ExteraConfig.titleText;
+            switch (actionBarTitle) {
+                case 0:
+                    title = LocaleController.getString("exteraAppName", R.string.exteraAppName);
+                    break;
+                case 3:
+                    title = LocaleController.getString(R.string.FilterChats);
+                    break;
+                default:
+                    var config = UserConfig.getInstance(UserConfig.selectedAccount);
+                    TLRPC.User user = config != null ? config.getCurrentUser() : null;
+                    if (user == null) {
+                        title = LocaleController.getString("exteraAppName", R.string.exteraAppName);
+                    } else {
+                        title = actionBarTitle == 1 && !TextUtils.isEmpty(UserObject.getPublicUsername(user)) ? UserObject.getPublicUsername(user) : UserObject.getFirstName(user);
+                    }
+                    break;
+            }
+            return title;
+        } catch (Exception e) {
+            FileLog.e(e);
+            return "AyuGram";
         }
-        return title;
     }
 
     public static CharSequence formatWithUsernames(String text, BaseFragment fragment) {
+        if (text == null) {
+            return null;
+        }
+        if (fragment == null) {
+            return text;
+        }
         int start = -1, end;
         boolean parse = false;
         SpannableStringBuilder stringBuilder = new SpannableStringBuilder(text);
@@ -66,7 +82,14 @@ public class LocaleUtils {
                     URLSpanNoUnderline urlSpan = new URLSpanNoUnderline(username) {
                         @Override
                         public void onClick(View widget) {
-                            ChatUtils.getMessagesController().openByUserName(username.substring(1), fragment, 1);
+                            try {
+                                var controller = ChatUtils.getMessagesController();
+                                if (controller != null && username != null && username.length() > 1) {
+                                    controller.openByUserName(username.substring(1), fragment, 1);
+                                }
+                            } catch (Exception e) {
+                                FileLog.e(e);
+                            }
                         }
                     };
                     stringBuilder.setSpan(urlSpan, start, end, 0);
@@ -83,21 +106,39 @@ public class LocaleUtils {
     }
 
     public static CharSequence formatWithURLs(CharSequence charSequence) {
-        Spannable spannable = new SpannableString(charSequence);
-        URLSpan[] spans = spannable.getSpans(0, charSequence.length(), URLSpan.class);
-        for (URLSpan urlSpan : spans) {
-            URLSpan span = urlSpan;
-            int start = spannable.getSpanStart(span), end = spannable.getSpanEnd(span);
-            spannable.removeSpan(span);
-            span = new URLSpanNoUnderline(span.getURL()) {
-                @Override
-                public void onClick(View widget) {
-                    super.onClick(widget);
-                }
-            };
-            spannable.setSpan(span, start, end, 0);
+        if (charSequence == null) {
+            return null;
         }
-        return spannable;
+        try {
+            Spannable spannable = new SpannableString(charSequence);
+            URLSpan[] spans = spannable.getSpans(0, charSequence.length(), URLSpan.class);
+            if (spans == null) {
+                return spannable;
+            }
+            for (URLSpan urlSpan : spans) {
+                if (urlSpan == null) {
+                    continue;
+                }
+                URLSpan span = urlSpan;
+                int start = spannable.getSpanStart(span), end = spannable.getSpanEnd(span);
+                spannable.removeSpan(span);
+                String url = span.getURL();
+                if (url == null) {
+                    continue;
+                }
+                span = new URLSpanNoUnderline(url) {
+                    @Override
+                    public void onClick(View widget) {
+                        super.onClick(widget);
+                    }
+                };
+                spannable.setSpan(span, start, end, 0);
+            }
+            return spannable;
+        } catch (Exception e) {
+            FileLog.e(e);
+            return charSequence;
+        }
     }
 
     public static String capitalize(String s) {

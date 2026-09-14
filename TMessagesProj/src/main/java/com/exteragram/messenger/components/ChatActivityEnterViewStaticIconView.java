@@ -57,13 +57,25 @@ public class ChatActivityEnterViewStaticIconView extends FrameLayout {
     }
 
     public void setState(State state, boolean animate) {
+        if (state == null) {
+            return;
+        }
         if (animate && state == currentState) {
             return;
         }
         State fromState = currentState;
         currentState = state;
         if (!animate || fromState == null) {
+            if (buttonsAnimation != null) {
+                buttonsAnimation.cancel();
+                buttonsAnimation = null;
+            }
             buttonViews[0].setImageResource(currentState.resource);
+            buttonViews[0].setVisibility(VISIBLE);
+            buttonViews[0].setAlpha(1.0f);
+            buttonViews[0].setScaleX(1.0f);
+            buttonViews[0].setScaleY(1.0f);
+            buttonViews[1].setVisibility(GONE);
         } else {
             if (buttonsAnimation != null)
                 buttonsAnimation.cancel();
@@ -80,9 +92,10 @@ public class ChatActivityEnterViewStaticIconView extends FrameLayout {
                     ObjectAnimator.ofFloat(buttonViews[1], View.SCALE_Y, 1.0f),
                     ObjectAnimator.ofFloat(buttonViews[1], View.ALPHA, 1.0f));
             buttonsAnimation.addListener(new AnimatorListenerAdapter() {
+                private final State endState = state;
                 @Override
                 public void onAnimationEnd(Animator animation) {
-                    if (animation.equals(buttonsAnimation)) {
+                    if (animation.equals(buttonsAnimation) && endState == currentState) {
                         buttonsAnimation = null;
                         ImageView temp = buttonViews[1];
                         buttonViews[1] = buttonViews[0];
@@ -105,6 +118,15 @@ public class ChatActivityEnterViewStaticIconView extends FrameLayout {
             case VIDEO:
                 setContentDescription(LocaleController.getString("AccDescrVideoMessage", R.string.AccDescrVideoMessage));
                 break;
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        if (buttonsAnimation != null) {
+            buttonsAnimation.cancel();
+            buttonsAnimation = null;
         }
     }
 

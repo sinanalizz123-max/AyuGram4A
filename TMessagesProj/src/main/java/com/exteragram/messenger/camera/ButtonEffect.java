@@ -40,7 +40,7 @@ public class ButtonEffect extends RelativeLayout {
             if (motionEvent.getAction() == MotionEvent.ACTION_UP && !isSelected) {
                 onItemClick(this, cameraType);
             }
-            return false;
+            return true;
         });
         imageView.setImageBitmap(getIcon());
 
@@ -92,12 +92,13 @@ public class ButtonEffect extends RelativeLayout {
     public void toggleButton(boolean enabled, boolean animated) {
         isSelected = enabled;
         if (!animated) {
-            imageView.setImageBitmap(getIcon());
+            setIconBitmap(getIcon());
         } else {
             currAn = toggleAnimation != null ? 2f - currAn : 0;
             reachedHalf = false;
             if (toggleAnimation != null) {
                 toggleAnimation.cancel();
+                toggleAnimation = null;
             }
             imageView.animate().setListener(null).cancel();
             float timeAnimation = (2f - currAn) / 2f;
@@ -109,7 +110,7 @@ public class ButtonEffect extends RelativeLayout {
                 if (v > 1f) {
                     if (!reachedHalf) {
                         reachedHalf = true;
-                        imageView.setImageBitmap(getIcon());
+                        setIconBitmap(getIcon());
                     }
                     rAn = v - 1f;
                 } else {
@@ -134,5 +135,32 @@ public class ButtonEffect extends RelativeLayout {
     }
 
     protected void onItemClick(ButtonEffect buttonEffect, int camera_type) {
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        if (toggleAnimation != null) {
+            toggleAnimation.cancel();
+            toggleAnimation = null;
+        }
+        if (imageView != null) {
+            imageView.animate().setListener(null).cancel();
+        }
+        super.onDetachedFromWindow();
+    }
+
+    private void setIconBitmap(Bitmap bitmap) {
+        try {
+            Drawable d = imageView.getDrawable();
+            imageView.setImageBitmap(bitmap);
+            if (d instanceof android.graphics.drawable.BitmapDrawable) {
+                Bitmap old = ((android.graphics.drawable.BitmapDrawable) d).getBitmap();
+                if (old != null && old != bitmap && !old.isRecycled()) {
+                    old.recycle();
+                }
+            }
+        } catch (Exception ignored) {
+            imageView.setImageBitmap(bitmap);
+        }
     }
 }

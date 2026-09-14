@@ -18,61 +18,146 @@ import java.util.List;
 
 public class FontUtils {
 
-    private static final String TEST_TEXT;
-    private static final int CANVAS_SIZE = AndroidUtilities.dp(12);
+    private static volatile String TEST_TEXT = null;
+    private static final Object testTextSync = new Object();
+    private static String getTestText() {
+        String t = TEST_TEXT;
+        if (t == null) {
+            synchronized (testTextSync) {
+                t = TEST_TEXT;
+                if (t == null) {
+                    try {
+                        var controller = LocaleController.getInstance();
+                        var locale = controller != null ? controller.getCurrentLocale() : null;
+                        if (locale != null && List.of("zh", "ja", "ko").contains(locale.getLanguage())) {
+                            t = "日";
+                        } else {
+                            t = "R";
+                        }
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                        t = "R";
+                    }
+                    TEST_TEXT = t;
+                }
+            }
+        }
+        return t;
+    }
+    private static int getCanvasSize() {
+        try {
+            int s = AndroidUtilities.dp(12);
+            return s > 0 ? s : 12;
+        } catch (Exception e) {
+            FileLog.e(e);
+            return 12;
+        }
+    }
     private static final Paint PAINT = new Paint() {{
-        setTextSize(CANVAS_SIZE);
+        setTextSize(12);
         setAntiAlias(false);
         setSubpixelText(false);
         setFakeBoldText(false);
     }};
 
-    private static Boolean mediumWeightSupported = null;
-    private static Boolean italicSupported = null;
+    private static final Object mediumLock = new Object();
+    private static final Object italicLock = new Object();
+    private static volatile Boolean mediumWeightSupported = null;
+    private static volatile Boolean italicSupported = null;
 
     public static boolean loadSystemEmojiFailed = false;
-    private static Typeface systemEmojiTypeface;
-
-    static {
-        if (List.of("zh", "ja", "ko").contains(LocaleController.getInstance().getCurrentLocale().getLanguage())) {
-            TEST_TEXT = "日";
-        } else {
-            TEST_TEXT = "R";
-        }
-    }
+    private static volatile Typeface systemEmojiTypeface;
 
     public static boolean isMediumWeightSupported() {
-        if (mediumWeightSupported == null) {
-            mediumWeightSupported = testTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-            FileLog.d("mediumWeightSupported = " + mediumWeightSupported);
+        Boolean v = mediumWeightSupported;
+        if (v == null) {
+            synchronized (mediumLock) {
+                v = mediumWeightSupported;
+                if (v == null) {
+                    try {
+                        v = testTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                        v = false;
+                    }
+                    FileLog.d("mediumWeightSupported = " + v);
+                    mediumWeightSupported = v;
+                }
+            }
         }
-        return mediumWeightSupported;
+        return v != null && v;
     }
 
     public static boolean isItalicSupported() {
-        if (italicSupported == null) {
-            italicSupported = testTypeface(Typeface.create("sans-serif", Typeface.ITALIC));
-            FileLog.d("italicSupported = " + italicSupported);
+        Boolean v = italicSupported;
+        if (v == null) {
+            synchronized (italicLock) {
+                v = italicSupported;
+                if (v == null) {
+                    try {
+                        v = testTypeface(Typeface.create("sans-serif", Typeface.ITALIC));
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                        v = false;
+                    }
+                    FileLog.d("italicSupported = " + v);
+                    italicSupported = v;
+                }
+            }
         }
-        return italicSupported;
+        return v != null && v;
     }
 
     private static boolean testTypeface(Typeface typeface) {
-        Canvas canvas = new Canvas();
-
-        Bitmap bitmap1 = Bitmap.createBitmap(CANVAS_SIZE, CANVAS_SIZE, Bitmap.Config.ALPHA_8);
-        canvas.setBitmap(bitmap1);
-        PAINT.setTypeface(null);
-        canvas.drawText(TEST_TEXT, 0, CANVAS_SIZE, PAINT);
-
-        Bitmap bitmap2 = Bitmap.createBitmap(CANVAS_SIZE, CANVAS_SIZE, Bitmap.Config.ALPHA_8);
-        canvas.setBitmap(bitmap2);
-        PAINT.setTypeface(typeface);
-        canvas.drawText(TEST_TEXT, 0, CANVAS_SIZE, PAINT);
-
-        boolean supported = !bitmap1.sameAs(bitmap2);
-        AndroidUtilities.recycleBitmaps(List.of(bitmap1, bitmap2));
-        return supported;
+        int canvasSize = getCanvasSize();
+        if (canvasSize <= 0) {
+            return false;
+        }
+        String testText = getTestText();
+        if (testText == null) {
+            return false;
+        }
+        Bitmap bitmap1 = null;
+        Bitmap bitmap2 = null;
+        try {
+            Canvas canvas = new Canvas();
+            bitmap1 = Bitmap.createBitmap(canvasSize, canvasSize, Bitmap.Config.ALPHA_8);
+            if (bitmap1 == null) {
+                return false;
+            }
+            canvas.setBitmap(bitmap1);
+            synchronized (PAINT) {
+                PAINT.setTextSize(canvasSize);
+                PAINT.setTypeface(null);
+                canvas.drawText(testText, 0, canvasSize, PAINT);
+                bitmap2 = Bitmap.createBitmap(canvasSize, canvasSize, Bitmap.Config.ALPHA_8);
+                if (bitmap2 == null) {
+                    return false;
+                }
+                canvas.setBitmap(bitmap2);
+                PAINT.setTypeface(typeface);
+                canvas.drawText(testText, 0, canvasSize, PAINT);
+            }
+            return !bitmap1.sameAs(bitmap2);
+        } catch (Exception e) {
+            FileLog.e(e);
+            return false;
+        } finally {
+            try {
+                if (bitmap1 != null) {
+                    bitmap1.recycle();
+                }
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+            try {
+                if (bitmap2 != null) {
+                    bitmap2.recycle();
+                }
+            } catch (Exception e) {
+                FileLog.e(e);
+            }
+        }
     }
 
     public static File getSystemEmojiFontPath() {
@@ -114,12 +199,24 @@ public class FontUtils {
 
     public static Typeface getSystemEmojiTypeface() {
         if (!loadSystemEmojiFailed && systemEmojiTypeface == null) {
-            var font = getSystemEmojiFontPath();
-            if (font != null) {
-                systemEmojiTypeface = Typeface.createFromFile(font);
-            }
-            if (systemEmojiTypeface == null) {
-                loadSystemEmojiFailed = true;
+            synchronized (FontUtils.class) {
+                if (!loadSystemEmojiFailed && systemEmojiTypeface == null) {
+                    try {
+                        var font = getSystemEmojiFontPath();
+                        if (font != null) {
+                            try {
+                                systemEmojiTypeface = Typeface.createFromFile(font);
+                            } catch (Exception | Error e) {
+                                FileLog.e(e);
+                            }
+                        }
+                    } catch (Exception e) {
+                        FileLog.e(e);
+                    }
+                    if (systemEmojiTypeface == null) {
+                        loadSystemEmojiFailed = true;
+                    }
+                }
             }
         }
         return systemEmojiTypeface;

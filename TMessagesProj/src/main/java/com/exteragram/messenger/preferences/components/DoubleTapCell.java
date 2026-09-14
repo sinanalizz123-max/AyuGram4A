@@ -57,8 +57,10 @@ import java.util.List;
 public class DoubleTapCell extends LinearLayout {
 
     private final RectF rect = new RectF();
+    private final Rect rect1 = new Rect();
     private final Paint outlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint[] circleOutlinePaint = new Paint[2];
+    private final Paint[] circleOutlinePaint = new Paint[]{new Paint(Paint.ANTI_ALIAS_FLAG), new Paint(Paint.ANTI_ALIAS_FLAG)};
+    private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private final Theme.MessageDrawable[] messages = new Theme.MessageDrawable[]{
             new Theme.MessageDrawable(Theme.MessageDrawable.TYPE_TEXT, false, false),
@@ -79,8 +81,8 @@ public class DoubleTapCell extends LinearLayout {
     private static final int[] ICON_WIDTH = new int[]{AndroidUtilities.dp(12), AndroidUtilities.dp(12)};
 
     private final ValueAnimator[] animator = new ValueAnimator[2];
-    private final ValueAnimator[] circleAnimator = new ValueAnimator[2];
-    private final ValueAnimator[] circleSizeAnimator = new ValueAnimator[2];
+    private final ValueAnimator[] circleAnimator = new ValueAnimator[4];
+    private final ValueAnimator[] circleSizeAnimator = new ValueAnimator[4];
     private final float[] circleSizeProgress = new float[4];
     private final float[] iconChangingProgress = new float[2];
     private final float[] circleProgress = new float[4];
@@ -101,7 +103,6 @@ public class DoubleTapCell extends LinearLayout {
         doubleTapIcons[1] = ExteraConfig.useSolarIcons ? R.drawable.msg_reactions : R.drawable.msg_saved_14;
 
         preview = new FrameLayout(context) {
-            @SuppressLint("DrawAllocation")
             @Override
             protected void onDraw(Canvas canvas) {
                 int color = Theme.getColor(Theme.key_switchTrack);
@@ -109,11 +110,10 @@ public class DoubleTapCell extends LinearLayout {
                 int g = Color.green(color);
                 int b = Color.blue(color);
 
-                @SuppressLint("DrawAllocation") Rect rect1 = new Rect();
-
                 float stroke = outlinePaint.getStrokeWidth() / 2;
-                Theme.dialogs_onlineCirclePaint.setColor(Color.argb(20, r, g, b));
+                fillPaint.setColor(Color.argb(20, r, g, b));
 
+                canvas.save();
                 for (int i = 0; i < 2; i++) {
                     if (i == 0) {
                         rect.set(stroke + AndroidUtilities.dp(8), stroke + AndroidUtilities.dp(10), getMeasuredWidth() / 2 - AndroidUtilities.dp(8) - stroke, AndroidUtilities.dp(75) - stroke);
@@ -123,18 +123,27 @@ public class DoubleTapCell extends LinearLayout {
                     }
                     rect.round(rect1);
                     messages[i].setBounds(rect1);
-                    messages[i].draw(canvas, Theme.dialogs_onlineCirclePaint);
+                    messages[i].draw(canvas, fillPaint);
                     messages[i].draw(canvas, outlinePaint);
 
                     for (int j = 0; j < 2; j++) {
-                        circleOutlinePaint[j] = new Paint(Paint.ANTI_ALIAS_FLAG);
                         circleOutlinePaint[j].setStyle(Paint.Style.STROKE);
                         circleOutlinePaint[j].setColor(ColorUtils.blendARGB(0x00, Color.argb(76, r, g, b), circleProgress[i + 2 * j]));
                         circleOutlinePaint[j].setStrokeWidth(AndroidUtilities.dp(1.5f) * circleProgress[i + 2 * j] * circleProgress[i + 2 * j]);
                         canvas.drawCircle((i == 0 ? 1 : 3) * getMeasuredWidth() / 4, getMeasuredHeight() / 4 + AndroidUtilities.dpf2(i == 0 ? 3f : -2f), AndroidUtilities.dp(25 - 6 * j) * circleSizeProgress[i + 2 * j], circleOutlinePaint[j]);
                     }
 
-                    Drawable icon = ContextCompat.getDrawable(context, actionIcon[i]);
+                    Drawable icon = null;
+                    try {
+                        Drawable d = ContextCompat.getDrawable(context, actionIcon[i]);
+                        if (d != null) {
+                            icon = d.mutate();
+                        }
+                    } catch (Exception ignored) {
+                    }
+                    if (icon == null) {
+                        continue;
+                    }
                     if (i == 0)
                         icon.setBounds(getMeasuredWidth() / 4 - ICON_WIDTH[i], (int) (getMeasuredHeight() / 4 - ICON_WIDTH[i] + AndroidUtilities.dpf2(3f)), getMeasuredWidth() / 4 + ICON_WIDTH[i], (int) (getMeasuredHeight() / 4 + ICON_WIDTH[i] + AndroidUtilities.dpf2(3f)));
                     else
@@ -149,6 +158,7 @@ public class DoubleTapCell extends LinearLayout {
                     icon.setColorFilter(new PorterDuffColorFilter(ColorUtils.blendARGB(0x00, Theme.getColor(Theme.key_chats_menuItemIcon), iconChangingProgress[i]), PorterDuff.Mode.MULTIPLY));
                     icon.draw(canvas);
                 }
+                canvas.restore();
             }
         };
         preview.setWillNotDraw(false);
@@ -160,37 +170,52 @@ public class DoubleTapCell extends LinearLayout {
     public void updateIcons(int inv, boolean animate) {
         for (int i = 0; i < 2; i++) {
             if (i == 0 && inv == 2 || i == 1 && inv == 1) continue;
+            if (animator[i] != null) {
+                animator[i].cancel();
+                animator[i] = null;
+            }
             if (animate) {
                 int finalI = i;
                 for (int j = 0; j < 2; j++) {
                     int finalJ = j;
-                    circleSizeAnimator[j] = ValueAnimator.ofFloat(0f, 1f).setDuration(1300);
-                    circleSizeAnimator[j].setStartDelay(j * 60L);
-                    circleSizeAnimator[j].setInterpolator(Easings.easeInOutQuad);
-                    circleSizeAnimator[j].addUpdateListener(animation -> {
+                    int slot = finalI * 2 + finalJ;
+                    if (circleSizeAnimator[slot] != null) {
+                        circleSizeAnimator[slot].cancel();
+                    }
+                    if (circleAnimator[slot] != null) {
+                        circleAnimator[slot].cancel();
+                    }
+                    circleSizeAnimator[slot] = ValueAnimator.ofFloat(0f, 1f).setDuration(1300);
+                    circleSizeAnimator[slot].setStartDelay(j * 60L);
+                    circleSizeAnimator[slot].setInterpolator(Easings.easeInOutQuad);
+                    circleSizeAnimator[slot].addUpdateListener(animation -> {
                         circleSizeProgress[finalJ * 2 + finalI] = (Float) animation.getAnimatedValue();
                         invalidate();
                     });
 
-                    circleAnimator[j] = ValueAnimator.ofFloat(0f, 1f).setDuration(700);
-                    circleAnimator[j].setStartDelay(150 + j * 80L);
-                    circleAnimator[j].setInterpolator(Easings.easeInOutQuad);
-                    circleAnimator[j].addUpdateListener(animation -> {
+                    circleAnimator[slot] = ValueAnimator.ofFloat(0f, 1f).setDuration(700);
+                    circleAnimator[slot].setStartDelay(150 + j * 80L);
+                    circleAnimator[slot].setInterpolator(Easings.easeInOutQuad);
+                    circleAnimator[slot].addUpdateListener(animation -> {
                         circleProgress[finalJ * 2 + finalI] = (Float) animation.getAnimatedValue();
                         invalidate();
                     });
-                    circleAnimator[j].addListener(new AnimatorListenerAdapter() {
+                    circleAnimator[slot].addListener(new AnimatorListenerAdapter() {
                         @Override
                         public void onAnimationEnd(Animator animation) {
                             super.onAnimationEnd(animation);
-                            circleAnimator[finalJ].setFloatValues(1f, 0f);
-                            circleAnimator[finalJ].setDuration(700);
-                            circleAnimator[finalJ].removeAllListeners();
-                            circleAnimator[finalJ].start();
+                            ValueAnimator a = circleAnimator[finalI * 2 + finalJ];
+                            if (a == null || a != animation) {
+                                return;
+                            }
+                            a.setFloatValues(1f, 0f);
+                            a.setDuration(700);
+                            a.removeAllListeners();
+                            a.start();
                         }
                     });
-                    circleSizeAnimator[j].start();
-                    circleAnimator[j].start();
+                    circleSizeAnimator[slot].start();
+                    circleAnimator[slot].start();
                 }
 
                 animator[i] = ValueAnimator.ofFloat(1f, 0f).setDuration(250);
@@ -228,9 +253,32 @@ public class DoubleTapCell extends LinearLayout {
     }
 
     @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        for (int i = 0; i < animator.length; i++) {
+            if (animator[i] != null) {
+                animator[i].cancel();
+                animator[i] = null;
+            }
+        }
+        for (int i = 0; i < circleAnimator.length; i++) {
+            if (circleAnimator[i] != null) {
+                circleAnimator[i].cancel();
+                circleAnimator[i] = null;
+            }
+            if (circleSizeAnimator[i] != null) {
+                circleSizeAnimator[i].cancel();
+                circleSizeAnimator[i] = null;
+            }
+        }
+    }
+
+    @Override
     public void invalidate() {
         super.invalidate();
-        preview.invalidate();
+        if (preview != null) {
+            preview.invalidate();
+        }
     }
 
     @Override
@@ -307,6 +355,13 @@ public class DoubleTapCell extends LinearLayout {
         protected void onDetachedFromWindow() {
             super.onDetachedFromWindow();
             imageDrawable.detach();
+            if (selectAnimatedEmojiDialog != null) {
+                try {
+                    selectAnimatedEmojiDialog.dismiss();
+                } catch (Exception ignored) {
+                }
+                selectAnimatedEmojiDialog = null;
+            }
         }
 
         @Override
@@ -315,14 +370,20 @@ public class DoubleTapCell extends LinearLayout {
             imageDrawable.attach();
         }
 
-        public static SelectAnimatedEmojiDialog.SelectAnimatedEmojiDialogWindow selectAnimatedEmojiDialog;
+        private SelectAnimatedEmojiDialog.SelectAnimatedEmojiDialogWindow selectAnimatedEmojiDialog;
 
-        public static int getDialogHeight() {
+        public int getDialogHeight() {
+            if (selectAnimatedEmojiDialog == null) {
+                return 0;
+            }
             return selectAnimatedEmojiDialog.getHeight();
         }
 
         public static void showSelectStatusDialog(SetReactionCell cell, BaseFragment fragment) {
-            if (selectAnimatedEmojiDialog != null) {
+            if (fragment == null || fragment.getContext() == null || cell == null || cell.getParent() == null) {
+                return;
+            }
+            if (cell.selectAnimatedEmojiDialog != null) {
                 return;
             }
             final SelectAnimatedEmojiDialog.SelectAnimatedEmojiDialogWindow[] popup = new SelectAnimatedEmojiDialog.SelectAnimatedEmojiDialogWindow[1];
@@ -352,7 +413,7 @@ public class DoubleTapCell extends LinearLayout {
                         cell.update(true);
                     }
                     if (popup[0] != null) {
-                        selectAnimatedEmojiDialog = null;
+                        cell.selectAnimatedEmojiDialog = null;
                         popup[0].dismiss();
                     }
                 }
@@ -364,7 +425,7 @@ public class DoubleTapCell extends LinearLayout {
                         cell.update(true);
                     }
                     if (popup[0] != null) {
-                        selectAnimatedEmojiDialog = null;
+                        cell.selectAnimatedEmojiDialog = null;
                         popup[0].dismiss();
                     }
                 }
@@ -387,14 +448,23 @@ public class DoubleTapCell extends LinearLayout {
             popupLayout.setRecentReactions(reactions);
             popupLayout.setSaveState(3);
             popupLayout.setScrimDrawable(scrimDrawable, scrimDrawableParent);
-            popup[0] = selectAnimatedEmojiDialog = new SelectAnimatedEmojiDialog.SelectAnimatedEmojiDialogWindow(popupLayout, LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT) {
+            popup[0] = cell.selectAnimatedEmojiDialog = new SelectAnimatedEmojiDialog.SelectAnimatedEmojiDialogWindow(popupLayout, LayoutHelper.WRAP_CONTENT, LayoutHelper.WRAP_CONTENT) {
                 @Override
                 public void dismiss() {
                     super.dismiss();
-                    selectAnimatedEmojiDialog = null;
+                    cell.selectAnimatedEmojiDialog = null;
                 }
             };
-            popup[0].showAsDropDown(cell, 0, yoff, Gravity.TOP | Gravity.RIGHT);
+            if (cell.getParent() == null) {
+                cell.selectAnimatedEmojiDialog = null;
+                return;
+            }
+            try {
+                popup[0].showAsDropDown(cell, 0, yoff, Gravity.TOP | Gravity.RIGHT);
+            } catch (Exception e) {
+                cell.selectAnimatedEmojiDialog = null;
+                return;
+            }
             popup[0].dimBehind();
         }
     }

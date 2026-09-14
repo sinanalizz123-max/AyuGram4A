@@ -42,6 +42,9 @@ public class FabShapeCell extends LinearLayout {
 
         private final RectF rect = new RectF();
         private final Paint outlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private ValueAnimator animator;
+        private Drawable editDrawable;
         private final boolean squareFab;
         private float progress;
 
@@ -67,8 +70,8 @@ public class FabShapeCell extends LinearLayout {
             int b = Color.blue(color);
 
             rect.set(0, 0, getMeasuredWidth(), getMeasuredHeight());
-            Theme.dialogs_onlineCirclePaint.setColor(Color.argb(20, r, g, b));
-            canvas.drawRoundRect(rect, AndroidUtilities.dp(8), AndroidUtilities.dp(8), Theme.dialogs_onlineCirclePaint);
+            fillPaint.setColor(Color.argb(20, r, g, b));
+            canvas.drawRoundRect(rect, AndroidUtilities.dp(8), AndroidUtilities.dp(8), fillPaint);
 
             float stroke = outlinePaint.getStrokeWidth() / 2;
             rect.set(stroke, stroke, getMeasuredWidth() - stroke, getMeasuredHeight() - stroke);
@@ -79,23 +82,30 @@ public class FabShapeCell extends LinearLayout {
             int rad = cx / 2;
             for (int a = 0; a < 2; a++) {
                 cy += AndroidUtilities.dp(a == 0 ? 0 : 32);
-                Theme.dialogs_onlineCirclePaint.setColor(Color.argb(90, r, g, b));
-                canvas.drawRoundRect(cx - rad, cy - rad, cx + rad, cy + rad, ExteraConfig.getAvatarCorners(rad * 2, true), ExteraConfig.getAvatarCorners(rad * 2, true), Theme.dialogs_onlineCirclePaint);
+                fillPaint.setColor(Color.argb(90, r, g, b));
+                canvas.drawRoundRect(cx - rad, cy - rad, cx + rad, cy + rad, ExteraConfig.getAvatarCorners(rad * 2, true), ExteraConfig.getAvatarCorners(rad * 2, true), fillPaint);
 
                 for (int i = 0; i < 2; i++) {
-                    Theme.dialogs_onlineCirclePaint.setColor(Color.argb(i == 0 ? 204 : 90, r, g, b));
+                    fillPaint.setColor(Color.argb(i == 0 ? 204 : 90, r, g, b));
                     rect.set(AndroidUtilities.dp(41), cy - AndroidUtilities.dp(7 - i * 10), getMeasuredWidth() - AndroidUtilities.dp(i == 0 ? 90 : 70), cy - AndroidUtilities.dp(7 - 4 - i * 10));
-                    canvas.drawRoundRect(rect, AndroidUtilities.dp(2), AndroidUtilities.dp(2), Theme.dialogs_onlineCirclePaint);
+                    canvas.drawRoundRect(rect, AndroidUtilities.dp(2), AndroidUtilities.dp(2), fillPaint);
                 }
             }
-            Theme.dialogs_onlineCirclePaint.setColor(Theme.getColor(Theme.key_chats_actionBackground));
+            fillPaint.setColor(Theme.getColor(Theme.key_chats_actionBackground));
             rect.set(getMeasuredWidth() - AndroidUtilities.dp(42), getMeasuredHeight() - AndroidUtilities.dp(12), getMeasuredWidth() - AndroidUtilities.dp(12), getMeasuredHeight() - AndroidUtilities.dp(42));
-            canvas.drawRoundRect(rect, AndroidUtilities.dp(squareFab ? 9 : 100), AndroidUtilities.dp(squareFab ? 9 : 100), Theme.dialogs_onlineCirclePaint);
+            canvas.drawRoundRect(rect, AndroidUtilities.dp(squareFab ? 9 : 100), AndroidUtilities.dp(squareFab ? 9 : 100), fillPaint);
 
-            Drawable edit = ContextCompat.getDrawable(getContext(), R.drawable.floating_pencil);
-            edit.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_chats_actionIcon), PorterDuff.Mode.MULTIPLY));
-            edit.setBounds(getMeasuredWidth() - AndroidUtilities.dp(33), getMeasuredHeight() - AndroidUtilities.dp(32.5f), getMeasuredWidth() - AndroidUtilities.dp(21), getMeasuredHeight() - AndroidUtilities.dp(20.5f));
-            edit.draw(canvas);
+            if (editDrawable == null) {
+                Drawable d = ContextCompat.getDrawable(getContext(), R.drawable.floating_pencil);
+                if (d != null) {
+                    editDrawable = d.mutate();
+                }
+            }
+            if (editDrawable != null) {
+                editDrawable.setColorFilter(new PorterDuffColorFilter(Theme.getColor(Theme.key_chats_actionIcon), PorterDuff.Mode.MULTIPLY));
+                editDrawable.setBounds(getMeasuredWidth() - AndroidUtilities.dp(33), getMeasuredHeight() - AndroidUtilities.dp(32.5f), getMeasuredWidth() - AndroidUtilities.dp(21), getMeasuredHeight() - AndroidUtilities.dp(20.5f));
+                editDrawable.draw(canvas);
+            }
         }
 
         private void setProgress(float progress) {
@@ -112,13 +122,30 @@ public class FabShapeCell extends LinearLayout {
                 return;
             }
 
+            if (animator != null) {
+                animator.cancel();
+                animator = null;
+            }
             if (animate) {
-                ValueAnimator animator = ValueAnimator.ofFloat(progress, to).setDuration(250);
+                animator = ValueAnimator.ofFloat(progress, to).setDuration(250);
                 animator.setInterpolator(Easings.easeInOutQuad);
                 animator.addUpdateListener(animation -> setProgress((Float) animation.getAnimatedValue()));
                 animator.start();
             } else {
                 setProgress(to);
+            }
+        }
+
+        @Override
+        protected void onDetachedFromWindow() {
+            super.onDetachedFromWindow();
+            if (animator != null) {
+                animator.cancel();
+                animator = null;
+            }
+            if (editDrawable != null) {
+                editDrawable.setCallback(null);
+                editDrawable = null;
             }
         }
     }
@@ -148,8 +175,21 @@ public class FabShapeCell extends LinearLayout {
     @Override
     public void invalidate() {
         super.invalidate();
+        if (fabShape[0] != null) {
+            fabShape[0].invalidate();
+        }
+        if (fabShape[1] != null) {
+            fabShape[1].invalidate();
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
         for (int a = 0; a < 2; a++) {
-            fabShape[a].invalidate();
+            if (fabShape[a] != null) {
+                fabShape[a].clearAnimation();
+            }
         }
     }
 

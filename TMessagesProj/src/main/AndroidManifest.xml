@@ -121,7 +121,6 @@
         android:allowAudioPlaybackCapture="true"
         android:allowBackup="true"
         android:backupAgent=".BackupAgent"
-        android:exported="true"
         android:hardwareAccelerated="@bool/useHardwareAcceleration"
         android:hasFragileUserData="true"
         android:largeHeap="true"
@@ -131,7 +130,7 @@
         android:restoreAnyVersion="true"
         android:supportsRtl="false"
         android:theme="@style/Theme.TMessages.Start"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
         tools:replace="android:supportsRtl">
         <meta-data
             android:name="com.google.android.maps.v2.API_KEY"

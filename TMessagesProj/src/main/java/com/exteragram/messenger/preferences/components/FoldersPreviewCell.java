@@ -54,6 +54,9 @@ public class FoldersPreviewCell extends FrameLayout {
     private final RectF rect = new RectF();
     private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Paint outlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path tabClipPath = new Path();
+    private final Path counterClipPath = new Path();
 
     private float hideAllChatsProgress;
     private float roundedStyleProgress = 0f;
@@ -67,6 +70,18 @@ public class FoldersPreviewCell extends FrameLayout {
     private String allChatsTabIcon;
 
     private ValueAnimator animator;
+    private ValueAnimator styleAnimator;
+
+    private void cancelAnimators() {
+        if (animator != null) {
+            animator.cancel();
+            animator = null;
+        }
+        if (styleAnimator != null) {
+            styleAnimator.cancel();
+            styleAnimator = null;
+        }
+    }
 
     private final String[][] filters = new String[][]{
             {LocaleController.getString("FilterAllChats", R.string.FilterAllChats), "\uD83D\uDCAC"},
@@ -89,7 +104,6 @@ public class FoldersPreviewCell extends FrameLayout {
         outlinePaint.setStrokeWidth(Math.max(2, dp(1f)));
 
         preview = new FrameLayout(context) {
-            @SuppressLint("DrawAllocation")
             @Override
             protected void onDraw(Canvas canvas) {
                 int color = Theme.getColor(Theme.key_switchTrack);
@@ -100,8 +114,8 @@ public class FoldersPreviewCell extends FrameLayout {
                 float h = getMeasuredHeight();
 
                 rect.set(0, 0, w, h);
-                Theme.dialogs_onlineCirclePaint.setColor(Color.argb(20, r, g, b));
-                canvas.drawRoundRect(rect, dp(8), dp(8), Theme.dialogs_onlineCirclePaint);
+                fillPaint.setColor(Color.argb(20, r, g, b));
+                canvas.drawRoundRect(rect, dp(8), dp(8), fillPaint);
 
                 float stroke = outlinePaint.getStrokeWidth() / 2;
                 rect.set(stroke, stroke, w - stroke, h - stroke);
@@ -109,9 +123,10 @@ public class FoldersPreviewCell extends FrameLayout {
 
                 float startY = h - dp(4) - dpf2(4.5f * chipsStyleProgress) - stroke;
 
-                @SuppressLint("DrawAllocation") Path tab = new Path();
-                tab.addRect(0, startY + dp(4), getMeasuredWidth(), startY + dp(10), Path.Direction.CCW);
-                canvas.clipPath(tab, Region.Op.DIFFERENCE);
+                canvas.save();
+                tabClipPath.rewind();
+                tabClipPath.addRect(0, startY + dp(4), getMeasuredWidth(), startY + dp(10), Path.Direction.CCW);
+                canvas.clipPath(tabClipPath, Region.Op.DIFFERENCE);
 
                 textPaint.setTypeface(AndroidUtilities.getTypeface(AndroidUtilities.TYPEFACE_ROBOTO_MEDIUM));
 
@@ -121,15 +136,27 @@ public class FoldersPreviewCell extends FrameLayout {
                     if (i == 0) {
                         textPaint.setColor(ColorUtils.blendARGB(0x00, Theme.getColor(Theme.key_windowBackgroundWhiteValueText), hideAllChatsProgress));
                         textPaint.setTextScaleX(hideAllChatsProgress * titleProgress);
-                        Theme.dialogs_onlineCirclePaint.setColor(ColorUtils.blendARGB(Theme.getColor(Theme.key_windowBackgroundWhiteValueText), ColorUtils.setAlphaComponent(Theme.getColor(Theme.key_windowBackgroundWhiteValueText), 0x2F), chipsStyleProgress));
-                        Theme.dialogs_onlineCirclePaint.setColor(ColorUtils.blendARGB(0x00, Theme.dialogs_onlineCirclePaint.getColor(), hideAllChatsProgress));
+                        fillPaint.setColor(ColorUtils.blendARGB(Theme.getColor(Theme.key_windowBackgroundWhiteValueText), ColorUtils.setAlphaComponent(Theme.getColor(Theme.key_windowBackgroundWhiteValueText), 0x2F), chipsStyleProgress));
+                        fillPaint.setColor(ColorUtils.blendARGB(0x00, fillPaint.getColor(), hideAllChatsProgress));
                     } else {
                         textPaint.setColor(ColorUtils.blendARGB(0x00, color, titleProgress));
                         textPaint.setTextScaleX(titleProgress);
                     }
                     String name = i == 0 ? allChatsTabName : filters[i][0];
-                    Drawable icon = context.getDrawable(FolderIcons.getTabIcon(i == 0 ? allChatsTabIcon : filters[i][1])).mutate();
-                    icon.setColorFilter(new PorterDuffColorFilter(ColorUtils.blendARGB(0x00, i == 0 ? textPaint.getColor() : color, iconProgress), PorterDuff.Mode.MULTIPLY));
+                    if (name == null) {
+                        name = "";
+                    }
+                    Drawable icon = null;
+                    try {
+                        Drawable d = context.getDrawable(FolderIcons.getTabIcon(i == 0 ? allChatsTabIcon : filters[i][1]));
+                        if (d != null) {
+                            icon = d.mutate();
+                        }
+                    } catch (Exception ignored) {
+                    }
+                    if (icon != null) {
+                        icon.setColorFilter(new PorterDuffColorFilter(ColorUtils.blendARGB(0x00, i == 0 ? textPaint.getColor() : color, iconProgress), PorterDuff.Mode.MULTIPLY));
+                    }
                     float sw = textPaint.measureText(name) + dp(30 + 4) * iconProgress + (i == 0 ? dpf2(24) * counterProgress : 1) + 14 * (1 - iconProgress) * titleProgress - dp(4) * iconProgress * (1 - titleProgress) * counterProgress;
                     if (i == 0) {
                         canvas.drawRoundRect(
@@ -139,28 +166,40 @@ public class FoldersPreviewCell extends FrameLayout {
                                 startY + dp(8) - dpf2(4) * roundedStyleProgress - dpf2(9.5f) * chipsStyleProgress,
                                 dpf2(8 + 15 * pillsStyleProgress),
                                 dpf2(8 + 15 * pillsStyleProgress),
-                                Theme.dialogs_onlineCirclePaint);
+                                fillPaint);
                         float iconOffset = startX + dpf2(6) * (1 - titleProgress) * (1 - counterProgress) + dpf2(11) * chipsStyleProgress;
-                        icon.setBounds((int) (iconOffset), (int) h / 2 - dp(13), (int) (dpf2(26) * iconProgress * hideAllChatsProgress + iconOffset), (int) h / 2 + dp(13));
+                        if (icon != null) {
+                            icon.setBounds((int) (iconOffset), (int) h / 2 - dp(13), (int) (dpf2(26) * iconProgress * hideAllChatsProgress + iconOffset), (int) h / 2 + dp(13));
+                        }
                         canvas.drawText(name, startX + dp(30 * iconProgress) + dpf2(10) * chipsStyleProgress + 7f * (1 - iconProgress) * titleProgress, startY - dp(14), textPaint);
+                        canvas.save();
                         textPaint.setTextScaleX(counterProgress);
                         textPaint.setTextSize(dp(14 * hideAllChatsProgress * counterProgress));
                         textPaint.setColor(ColorUtils.blendARGB(0x00, Color.argb(20, r, g, b), counterProgress));
-                        Path path = new Path();
-                        textPaint.getTextPath("3", 0, 1, (int) (startX + sw - dpf2(15.5f) + dpf2(12) * chipsStyleProgress - dp(1) * (1 - titleProgress)), (int) (startY - dpf2(15f)), path);
-                        canvas.clipPath(path, Region.Op.DIFFERENCE);
+                        counterClipPath.rewind();
+                        try {
+                            textPaint.getTextPath("3", 0, 1, (int) (startX + sw - dpf2(15.5f) + dpf2(12) * chipsStyleProgress - dp(1) * (1 - titleProgress)), (int) (startY - dpf2(15f)), counterClipPath);
+                            canvas.clipPath(counterClipPath, Region.Op.DIFFERENCE);
+                        } catch (Exception ignored) {
+                        }
 
                         textPaint.setColor(ColorUtils.blendARGB(0x00, Theme.getColor(Theme.key_windowBackgroundWhiteValueText), counterProgress * hideAllChatsProgress));
                         canvas.drawCircle(startX + sw - dpf2(11.5f) + dpf2(12) * chipsStyleProgress - dp(1) * (1 - titleProgress), h / 2, dp(10 * counterProgress * hideAllChatsProgress), textPaint);
+                        canvas.restore();
 
                         startX += dp(25) + sw + dpf2(22) * chipsStyleProgress;
                     } else {
-                        icon.setBounds((int) startX, (int) h / 2 - dp(13), (int) startX + dp(26 * iconProgress), (int) h / 2 + dp(13));
+                        if (icon != null) {
+                            icon.setBounds((int) startX, (int) h / 2 - dp(13), (int) startX + dp(26 * iconProgress), (int) h / 2 + dp(13));
+                        }
                         canvas.drawText(name, startX + dp(30) * iconProgress, startY - dp(14), textPaint);
                         startX += dp(25) + sw + dpf2(5) * chipsStyleProgress;
                     }
-                    icon.draw(canvas);
+                    if (icon != null) {
+                        icon.draw(canvas);
+                    }
                 }
+                canvas.restore();
             }
         };
         preview.setWillNotDraw(false);
@@ -175,6 +214,7 @@ public class FoldersPreviewCell extends FrameLayout {
     public void updateAllChatsTabName(boolean animate) {
         if (Objects.equals(allChatsTabName, getAllChatsTabName()) && animate)
             return;
+        cancelAnimators();
         if (animate) {
             animator = ValueAnimator.ofFloat(1f, 0f).setDuration(250);
             animator.setInterpolator(Easings.easeInOutQuad);
@@ -186,6 +226,9 @@ public class FoldersPreviewCell extends FrameLayout {
                 @Override
                 public void onAnimationEnd(Animator animation) {
                     super.onAnimationEnd(animation);
+                    if (animator != animation) {
+                        return;
+                    }
                     allChatsTabName = getAllChatsTabName();
                     allChatsTabIcon = getAllChatsTabIcon();
                     animator.setFloatValues(0f, 1f);
@@ -210,7 +253,9 @@ public class FoldersPreviewCell extends FrameLayout {
         currentStyle = ExteraConfig.tabStyle;
 
         if (animate) {
+            cancelAnimators();
             ValueAnimator def = ValueAnimator.ofFloat(0f, 1f).setDuration(250);
+            styleAnimator = def;
             def.setStartDelay(100);
             def.setInterpolator(Easings.easeInOutQuad);
             def.addUpdateListener(animation -> {
@@ -286,6 +331,7 @@ public class FoldersPreviewCell extends FrameLayout {
         float to = ExteraConfig.tabIcons != 2 ? 1 : 0;
         if (to == titleProgress && animate)
             return;
+        cancelAnimators();
         if (animate) {
             animator = ValueAnimator.ofFloat(titleProgress, to).setDuration(250);
             animator.setInterpolator(Easings.easeInOutQuad);
@@ -304,6 +350,7 @@ public class FoldersPreviewCell extends FrameLayout {
         float to = ExteraConfig.tabIcons != 1 ? 1 : 0;
         if (to == iconProgress && animate)
             return;
+        cancelAnimators();
         if (animate) {
             animator = ValueAnimator.ofFloat(iconProgress, to).setDuration(250);
             animator.setInterpolator(Easings.easeInOutQuad);
@@ -322,6 +369,7 @@ public class FoldersPreviewCell extends FrameLayout {
         float to = ExteraConfig.tabCounter ? 1 : 0;
         if (to == counterProgress && animate)
             return;
+        cancelAnimators();
         if (animate) {
             animator = ValueAnimator.ofFloat(counterProgress, to).setDuration(250);
             animator.setInterpolator(Easings.easeInOutQuad);
@@ -347,7 +395,15 @@ public class FoldersPreviewCell extends FrameLayout {
     @Override
     public void invalidate() {
         super.invalidate();
-        preview.invalidate();
+        if (preview != null) {
+            preview.invalidate();
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        cancelAnimators();
     }
 
     @Override

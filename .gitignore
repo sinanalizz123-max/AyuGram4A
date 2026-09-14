@@ -9,6 +9,7 @@ obj/
 output-metadata.json
 local.properties
 API_KEYS
+local/api.properties
 
 *.hprof
 *.iml

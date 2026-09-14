@@ -6,7 +6,8 @@
 -keep class org.webrtc.* { *; }
 -keep class org.webrtc.audio.* { *; }
 -keep class org.webrtc.voiceengine.* { *; }
--keep class org.telegram.messenger.* { *; }
+-keep class org.telegram.messenger.BuildConfig { *; }
+-keepclasseswithmembernames class org.telegram.messenger.** { native <methods>; }
 -keep class org.telegram.messenger.camera.* { *; }
 -keep class org.telegram.messenger.secretmedia.* { *; }
 -keep class org.telegram.messenger.support.* { *; }
@@ -121,5 +122,3 @@
 -dontwarn org.openjsse.net.ssl.OpenJSSE
 
 # Use -keep to explicitly keep any other classes shrinking would remove
--dontoptimize
--dontobfuscate

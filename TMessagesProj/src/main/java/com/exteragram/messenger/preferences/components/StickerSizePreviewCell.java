@@ -207,6 +207,19 @@ public class StickerSizePreviewCell extends LinearLayout {
             oldBackgroundGradientDisposable.dispose();
             oldBackgroundGradientDisposable = null;
         }
+        if (backgroundDrawable != null) {
+            backgroundDrawable.setCallback(null);
+            backgroundDrawable = null;
+        }
+        if (oldBackgroundDrawable != null) {
+            oldBackgroundDrawable.setCallback(null);
+            oldBackgroundDrawable = null;
+        }
+        for (int a = 0; a < cells.length; a++) {
+            if (cells[a] != null) {
+                cells[a].clearAnimation();
+            }
+        }
     }
 
     @Override

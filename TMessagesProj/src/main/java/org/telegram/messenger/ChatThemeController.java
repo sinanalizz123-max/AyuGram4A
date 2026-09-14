@@ -382,10 +382,8 @@ public class ChatThemeController extends BaseController {
     public static void saveWallpaperBitmap(Bitmap bitmap, long themeId) {
         File file = getPatternFile(themeId);
         chatThemeQueue.postRunnable(() -> {
-            try {
-                FileOutputStream stream = new FileOutputStream(file);
+            try (FileOutputStream stream = new FileOutputStream(file)) {
                 bitmap.compress(Bitmap.CompressFormat.PNG, 87, stream);
-                stream.close();
             } catch (Exception e) {
                 FileLog.e(e);
             }

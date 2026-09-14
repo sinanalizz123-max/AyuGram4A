@@ -66,6 +66,11 @@ public class CameraTypeSelector extends LinearLayout {
 
     private ValueAnimator animator;
     private float progress;
+    private final Rect rect1 = new Rect();
+    private final ShapeDrawable phoneDrawable;
+    private final GradientDrawable gd = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x00, 0x00});
+    private Drawable cachedIcon;
+    private int cachedIconRes = -1;
 
     public CameraTypeSelector(Context context) {
         super(context);
@@ -77,6 +82,9 @@ public class CameraTypeSelector extends LinearLayout {
 
         outlinePaint.setStyle(Paint.Style.STROKE);
         outlinePaint.setColor(ColorUtils.setAlphaComponent(Theme.getColor(Theme.key_switchTrack), 0x3F));
+
+        int radInit = AndroidUtilities.dp(25);
+        phoneDrawable = new ShapeDrawable(new RoundRectShape(new float[]{radInit, radInit, radInit, radInit, 0, 0, 0, 0}, null, null));
 
         preview = new FrameLayout(context) {
             @Override
@@ -97,10 +105,6 @@ public class CameraTypeSelector extends LinearLayout {
 
                 float stroke = outlinePaint.getStrokeWidth() / 2;
 
-                Rect rect1 = new Rect();
-                int rad = AndroidUtilities.dp(25);
-                ShapeDrawable phoneDrawable = new ShapeDrawable(new RoundRectShape(new float[]{rad, rad, rad, rad, 0, 0, 0, 0}, null, null));
-
                 rect.set(left, top, right, bottom);
                 rect.round(rect1);
                 phoneDrawable.setBounds(rect1);
@@ -113,19 +117,23 @@ public class CameraTypeSelector extends LinearLayout {
                 phoneDrawable.getPaint().set(outlinePaint);
                 phoneDrawable.draw(canvas);
 
-                GradientDrawable gd = new GradientDrawable(
-                        GradientDrawable.Orientation.TOP_BOTTOM,
-                        new int[]{0x00, Theme.getColor(Theme.key_windowBackgroundWhite)}
-                );
+                gd.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
+                gd.setColors(new int[]{0x00, Theme.getColor(Theme.key_windowBackgroundWhite)});
                 gd.setCornerRadius(0f);
                 gd.setBounds((int) (left - stroke), (int) (3 * getMeasuredHeight() / 4 - stroke), (int) (right + stroke), (int) (bottom + stroke));
                 gd.draw(canvas);
 
-                Drawable d = ContextCompat.getDrawable(context, icons[currentIcon]);
-                int ICON_WIDTH = AndroidUtilities.dp(16 + 2 * progress);
-                d.setBounds(getMeasuredWidth() / 2 - ICON_WIDTH, getMeasuredHeight() / 2, getMeasuredWidth() / 2 + ICON_WIDTH, getMeasuredHeight() / 2 + 2 * ICON_WIDTH);
-                d.setColorFilter(new PorterDuffColorFilter(ColorUtils.setAlphaComponent(Theme.getColor(Theme.key_switchTrack), (int) (0x4F * progress)), PorterDuff.Mode.MULTIPLY));
-                d.draw(canvas);
+                if (cachedIcon == null || cachedIconRes != icons[currentIcon]) {
+                    cachedIconRes = icons[currentIcon];
+                    cachedIcon = ContextCompat.getDrawable(context, cachedIconRes);
+                }
+                Drawable d = cachedIcon;
+                if (d != null) {
+                    int ICON_WIDTH = AndroidUtilities.dp(16 + 2 * progress);
+                    d.setBounds(getMeasuredWidth() / 2 - ICON_WIDTH, getMeasuredHeight() / 2, getMeasuredWidth() / 2 + ICON_WIDTH, getMeasuredHeight() / 2 + 2 * ICON_WIDTH);
+                    d.setColorFilter(new PorterDuffColorFilter(ColorUtils.setAlphaComponent(Theme.getColor(Theme.key_switchTrack), (int) (0x4F * progress)), PorterDuff.Mode.MULTIPLY));
+                    d.draw(canvas);
+                }
 
                 gd.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
                 gd.setColors(new int[]{0x00, Color.argb(30, r, g, b)});
@@ -178,6 +186,9 @@ public class CameraTypeSelector extends LinearLayout {
 
     public void updateIcon(boolean animate) {
         if (animate) {
+            if (animator != null) {
+                animator.cancel();
+            }
             animator = ValueAnimator.ofFloat(1f, 0f).setDuration(100);
             animator.setInterpolator(Easings.easeInOutQuad);
             animator.addUpdateListener(animation -> {
@@ -198,6 +209,20 @@ public class CameraTypeSelector extends LinearLayout {
         } else {
             progress = 1f;
             preview.invalidate();
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        if (animator != null) {
+            animator.cancel();
+            animator = null;
+        }
+        if (cachedIcon != null) {
+            cachedIcon.setCallback(null);
+            cachedIcon = null;
+            cachedIconRes = -1;
         }
     }
 

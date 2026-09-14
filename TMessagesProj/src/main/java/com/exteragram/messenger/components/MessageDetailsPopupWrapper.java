@@ -11,6 +11,7 @@
 
 package com.exteragram.messenger.components;
 
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.BitmapFactory;
 import android.media.MediaMetadataRetriever;
@@ -23,6 +24,7 @@ import androidx.core.content.FileProvider;
 
 import com.exteragram.messenger.utils.ChatUtils;
 import com.google.zxing.Dimension;
+import com.exteragram.messenger.utils.AyuDownloadEngine;
 import com.radolyn.ayugram.messages.AyuMessagesController;
 
 import org.telegram.messenger.AccountInstance;
@@ -66,9 +68,15 @@ public class MessageDetailsPopupWrapper {
     public MessageDetailsPopupWrapper(BaseFragment fragment, PopupSwipeBackLayout swipeBackLayout, MessageObject messageObject, Theme.ResourcesProvider resourcesProvider) {
         this.fragment = fragment;
         this.resourcesProvider = resourcesProvider;
-        var context = fragment.getParentActivity();
+        var context = fragment != null ? fragment.getParentActivity() : null;
+        if (context == null) {
+            context = ApplicationLoader.applicationContext;
+        }
         windowLayout = new ActionBarPopupWindow.ActionBarPopupWindowLayout(context, 0, resourcesProvider, ActionBarPopupWindow.ActionBarPopupWindowLayout.FLAG_USE_SWIPEBACK);
         windowLayout.setFitItems(true);
+        if (fragment == null || messageObject == null || messageObject.messageOwner == null) {
+            return;
+        }
 
         if (swipeBackLayout != null) {
             var backItem = ActionBarMenuItem.addItem(windowLayout, R.drawable.msg_arrow_back, LocaleController.getString("Back", R.string.Back), false, resourcesProvider);
@@ -139,16 +147,30 @@ public class MessageDetailsPopupWrapper {
             }
         }
         if (TextUtils.isEmpty(filePath)) {
-            filePath = FileLoader.getInstance(UserConfig.selectedAccount).getPathToMessage(messageObject.messageOwner).toString();
-            File temp = new File(filePath);
-            if (!temp.exists()) {
+            try {
+                File path = FileLoader.getInstance(UserConfig.selectedAccount).getPathToMessage(messageObject.messageOwner);
+                if (path != null) {
+                    filePath = path.toString();
+                    File temp = new File(filePath);
+                    if (!temp.exists()) {
+                        filePath = null;
+                    }
+                }
+            } catch (Exception ignored) {
                 filePath = null;
             }
         }
         if (TextUtils.isEmpty(filePath)) {
-            filePath = FileLoader.getInstance(UserConfig.selectedAccount).getPathToAttach(messageObject.getDocument(), true).toString();
-            File temp = new File(filePath);
-            if (!temp.isFile()) {
+            try {
+                File path = FileLoader.getInstance(UserConfig.selectedAccount).getPathToAttach(messageObject.getDocument(), true);
+                if (path != null) {
+                    filePath = path.toString();
+                    File temp = new File(filePath);
+                    if (!temp.isFile()) {
+                        filePath = null;
+                    }
+                }
+            } catch (Exception ignored) {
                 filePath = null;
             }
         }
@@ -184,7 +206,45 @@ public class MessageDetailsPopupWrapper {
             items.add(new Item(R.drawable.msg_satellite, LocaleController.getString(R.string.Datacenter), String.format(Locale.ROOT, "DC%d, %s", dc, ChatUtils.getDCName(dc))));
         }
 
-        if (items.get(items.size() - 1) == null) {
+        try {
+            if (AyuDownloadEngine.isEnabled()) {
+                long speed = AyuDownloadEngine.getThroughputBps();
+                long peak = AyuDownloadEngine.getBestThroughputBps();
+                String speedText = speed > 0 ? AndroidUtilities.formatFileSize(speed) + "/s" : null;
+                String peakText = peak > 0 ? AndroidUtilities.formatFileSize(peak) + "/s" : null;
+                String network = null;
+                try {
+                    network = AyuDownloadEngine.isWifi() ? "Wi-Fi" : "Mobile";
+                } catch (Exception ignored) {
+                }
+                String storage = null;
+                try {
+                    long free = AyuDownloadEngine.getAvailableStorage(null);
+                    if (free >= 0) {
+                        storage = AndroidUtilities.formatFileSize(free) + " free";
+                    }
+                } catch (Exception ignored) {
+                }
+                if (speedText != null || peakText != null || network != null || storage != null) {
+                    items.add(null);
+                    if (speedText != null) {
+                        items.add(new Item(R.drawable.msg_sendfile, "Speed", speedText));
+                    }
+                    if (peakText != null) {
+                        items.add(new Item(R.drawable.msg_media, "Peak", peakText));
+                    }
+                    if (network != null) {
+                        items.add(new Item(R.drawable.msg_map, "Network", network));
+                    }
+                    if (storage != null) {
+                        items.add(new Item(R.drawable.msg_noise_on, "Storage", storage));
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        if (!items.isEmpty() && items.get(items.size() - 1) == null) {
             items.remove(items.size() - 1);
         }
         for (Item i : items) {
@@ -199,6 +259,9 @@ public class MessageDetailsPopupWrapper {
             }
             if (i.id == SET_OWNER && stickerSetId != 0) {
                 ChatUtils.searchById(stickerSetId >> 32, user -> {
+                    if (item.getParent() == null) {
+                        return;
+                    }
                     if (user != null) {
                         ownerId = user.id;
                         if (!TextUtils.isEmpty(UserObject.getPublicUsername(user))) {
@@ -216,13 +279,21 @@ public class MessageDetailsPopupWrapper {
             item.setTag(i);
             item.setOnClickListener(view -> {
                 if (i.id == FILE_PATH && filePath != null) {
-                    Intent intent = new Intent(Intent.ACTION_SEND);
-                    var uri = FileProvider.getUriForFile(context, ApplicationLoader.getApplicationId() + ".provider", new File(filePath));
-                    intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    intent.putExtra(Intent.EXTRA_STREAM, uri);
-                    intent.setDataAndType(uri, messageObject.getMimeType());
-                    context.startActivityForResult(Intent.createChooser(intent, LocaleController.getString("ShareFile", R.string.ShareFile)), 500);
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_SEND);
+                        var uri = FileProvider.getUriForFile(context, ApplicationLoader.getApplicationId() + ".provider", new File(filePath));
+                        intent.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        intent.putExtra(Intent.EXTRA_STREAM, uri);
+                        intent.setDataAndType(uri, messageObject.getMimeType());
+                        context.startActivityForResult(Intent.createChooser(intent, LocaleController.getString("ShareFile", R.string.ShareFile)), 500);
+                    } catch (ActivityNotFoundException | IllegalArgumentException | NullPointerException e) {
+                        FileLog.e(e);
+                    }
                 } else if (i.id == SET_OWNER) {
+                    if (fragment == null || fragment.getParentActivity() == null) {
+                        copy(ChatUtils.getOwnerIds(stickerSetId));
+                        return;
+                    }
                     if (ownerId > 0) {
                         Bundle args = new Bundle();
                         args.putLong("user_id", ownerId);
@@ -284,7 +355,8 @@ public class MessageDetailsPopupWrapper {
     }
 
     private View createGap() {
-        View gap = new FrameLayout(fragment.getContext());
+        android.content.Context ctx = fragment != null && fragment.getContext() != null ? fragment.getContext() : ApplicationLoader.applicationContext;
+        View gap = new FrameLayout(ctx);
         gap.setBackgroundColor(Theme.getColor(Theme.key_actionBarDefaultSubmenuSeparator, resourcesProvider));
         return gap;
     }

@@ -38,7 +38,13 @@ public class EffectSelector extends LinearLayout {
 
     public void resetSelectedEffect() {
         for (int i = 0; i < getChildCount(); i++) {
+            if (!(getChildAt(i) instanceof LinearLayout)) {
+                continue;
+            }
             LinearLayout linearLayout = (LinearLayout) getChildAt(i);
+            if (linearLayout.getChildCount() == 0 || !(linearLayout.getChildAt(0) instanceof ButtonEffect)) {
+                continue;
+            }
             ButtonEffect buttonEffect = (ButtonEffect) linearLayout.getChildAt(0);
             buttonEffect.toggleButton(buttonEffect.cameraType == CameraXController.CAMERA_NONE, false);
             if (buttonEffect.cameraType == CameraXController.CAMERA_NONE) {
@@ -109,7 +115,14 @@ public class EffectSelector extends LinearLayout {
         setOrientation(screenOrientation);
         int orientation = screenOrientation == VERTICAL ? -180 : 0;
         for (int i = 0; i < getChildCount(); i++) {
-            ((LinearLayout) getChildAt(i)).getChildAt(0).setRotationX(orientation);
+            if (!(getChildAt(i) instanceof LinearLayout)) {
+                continue;
+            }
+            LinearLayout parent = (LinearLayout) getChildAt(i);
+            if (parent.getChildCount() == 0 || parent.getChildAt(0) == null) {
+                continue;
+            }
+            parent.getChildAt(0).setRotation(orientation);
         }
         int colorBackground = Color.BLACK;
         if (screenOrientation == HORIZONTAL) {
@@ -136,22 +149,30 @@ public class EffectSelector extends LinearLayout {
     public int getSpaceNotch() {
         int notchSize = 0;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            WindowInsets windowInsets = AndroidUtilities.findActivity(getContext()).getWindow().getDecorView().getRootWindowInsets();
-            if (windowInsets != null) {
-                DisplayCutout cutout = windowInsets.getDisplayCutout();
-                if (cutout != null) {
-                    List<Rect> boundRect = cutout.getBoundingRects();
-                    if (boundRect.size() > 0) {
-                        if (getOrientation() == HORIZONTAL) {
-                            notchSize = boundRect.get(0).bottom;
-                        } else {
-                            notchSize = boundRect.get(0).right;
-                            notchSize = notchSize > 500 ? 0 : notchSize;
+            try {
+                android.app.Activity activity = AndroidUtilities.findActivity(getContext());
+                if (activity == null || activity.getWindow() == null || activity.getWindow().getDecorView() == null) {
+                    return 0;
+                }
+                WindowInsets windowInsets = activity.getWindow().getDecorView().getRootWindowInsets();
+                if (windowInsets != null) {
+                    DisplayCutout cutout = windowInsets.getDisplayCutout();
+                    if (cutout != null) {
+                        List<Rect> boundRect = cutout.getBoundingRects();
+                        if (boundRect != null && boundRect.size() > 0 && boundRect.get(0) != null) {
+                            if (getOrientation() == HORIZONTAL) {
+                                notchSize = boundRect.get(0).bottom;
+                            } else {
+                                notchSize = boundRect.get(0).right;
+                                notchSize = notchSize > 500 ? 0 : notchSize;
+                            }
                         }
                     }
                 }
+            } catch (Exception ignored) {
+                return 0;
             }
         }
-        return notchSize;
+        return Math.max(0, notchSize);
     }
 }

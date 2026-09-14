@@ -162,6 +162,7 @@ public class NotificationCenter {
     public static final int filePreparingStarted = totalEvents++;
     public static final int fileNewChunkAvailable = totalEvents++;
     public static final int filePreparingFailed = totalEvents++;
+    public static final int fileDownloadDegraded = totalEvents++;
 
     public static final int dialogsUnreadCounterChanged = totalEvents++;
 
