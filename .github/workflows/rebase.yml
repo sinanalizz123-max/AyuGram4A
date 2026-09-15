@@ -77,7 +77,7 @@ jobs:
         working-directory: src
         run: |
           chmod +x gradlew
-          ./gradlew :TMessagesProj:compileArm64DebugJavaWithJavac --parallel -Porg.gradle.caching=true
+          ./gradlew :TMessagesProj:compileDebugJavaWithJavac --parallel -Porg.gradle.caching=true
 
   build:
     needs: compile-check
