@@ -1,6 +1,4 @@
 name: Rebase v12 shell build
-# Stage 1: clone official master @ pin, apply identity overlay, green shell APK.
-# Manual dispatch only — does not interfere with the 9.6.6 line.
 on:
   push:
     branches: [rebase-v12]
@@ -16,7 +14,73 @@ on:
           - assembleAfatRelease
 
 jobs:
+  compile-check:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone official master at pin
+        run: |
+          SHA=$(cat REBASE_SHA | tr -d '[:space:]')
+          echo "pin=$SHA"
+          git clone https://github.com/DrKLO/Telegram.git src
+          cd src
+          git checkout "$SHA"
+          git submodule update --init --depth 1 --recursive
+          git submodule status | head -12
+
+      - name: Apply identity overlay
+        run: |
+          tar -xzf overlay-rebase.tar.gz -C src
+          echo "--- overlay files ---"
+          tar -tzf overlay-rebase.tar.gz | wc -l
+          git -C src status -sb | head -15
+
+      - name: Write dummy local/api.properties
+        run: |
+          mkdir -p src/local
+          printf 'APP_ID=4\nAPP_HASH=00000000000000000000000000000000\nSIGNING_KEY_STORE_PASSWORD=android\nSIGNING_KEY_ALIAS=androiddebugkey\nSIGNING_KEY_PASSWORD=android\n' > src/local/api.properties
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Cache Android SDK/NDK
+        id: cache-sdk
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/android/sdk/platforms/android-36
+            /usr/local/lib/android/sdk/build-tools/36.0.0
+            /usr/local/lib/android/sdk/ndk/27.2.12479018
+            /usr/local/lib/android/sdk/cmake/3.22.1
+          key: android-sdk-36-ndk27.2-cmake3.22-v1
+          restore-keys: android-sdk-36-
+
+      - name: Install Android SDK packages
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install NDK 27.2.12479018
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" "cmake;3.22.1"
+          cat "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
+
+      - name: Compile Java only (fast gate ~10m)
+        working-directory: src
+        run: |
+          chmod +x gradlew
+          ./gradlew :TMessagesProj:compileArm64DebugJavaWithJavac --parallel -Porg.gradle.caching=true
+
   build:
+    needs: compile-check
     runs-on: ubuntu-22.04
     timeout-minutes: 300
     env:
@@ -101,10 +165,11 @@ jobs:
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: rebase-ccache
+          key: rebase-ccache-v2
           restore-keys: rebase-ccache
 
       - name: Cache Android SDK/NDK
+        id: cache-sdk
         uses: actions/cache@v4
         with:
           path: |
@@ -113,13 +178,16 @@ jobs:
             /usr/local/lib/android/sdk/ndk/27.2.12479018
             /usr/local/lib/android/sdk/cmake/3.22.1
           key: android-sdk-36-ndk27.2-cmake3.22-v1
+          restore-keys: android-sdk-36-
 
       - name: Install Android SDK packages
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Install NDK 27.2.12479018
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" "cmake;3.22.1"
           cat "$ANDROID_HOME/ndk/27.2.12479018/source.properties"
