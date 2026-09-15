@@ -16,3 +16,6 @@ TMessagesProj/config/extera.jks
 *.iml
 *.apk
 *.so
+
+# CI artifacts downloaded locally
+artifacts/
