@@ -104,6 +104,16 @@ jobs:
           key: rebase-ccache
           restore-keys: rebase-ccache
 
+      - name: Cache Android SDK/NDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/android/sdk/platforms/android-36
+            /usr/local/lib/android/sdk/build-tools/36.0.0
+            /usr/local/lib/android/sdk/ndk/27.2.12479018
+            /usr/local/lib/android/sdk/cmake/3.22.1
+          key: android-sdk-36-ndk27.2-cmake3.22-v1
+
       - name: Install Android SDK packages
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
